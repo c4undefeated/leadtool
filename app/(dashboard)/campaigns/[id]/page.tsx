@@ -44,7 +44,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <h2 className="font-medium text-sm mb-3">Live scanning ({campaign.sourceType})</h2>
         {!aiReady && (
           <p className="text-sm text-caution mb-2">
-            ANTHROPIC_API_KEY is not set — Scout can't analyze anything yet, live or manual.
+            GEMINI_API_KEY is not set — Scout can't analyze anything yet, live or manual.
           </p>
         )}
         <p className="text-sm text-muted mb-3">{health.message}</p>

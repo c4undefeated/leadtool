@@ -1,9 +1,7 @@
 import type { Offer } from "@prisma/client";
 import type { NormalizedConversation } from "@/lib/sources/types";
-import { getAnthropicClient, ANALYSIS_MODEL } from "./client";
-import { analysisResultSchema, analysisToolInputSchema, ANALYSIS_PROMPT_VERSION, type AnalysisResult } from "./schemas";
-
-const TOOL_NAME = "record_analysis";
+import { getGeminiClient, ANALYSIS_MODEL } from "./client";
+import { analysisResultSchema, analysisResponseSchema, ANALYSIS_PROMPT_VERSION, type AnalysisResult } from "./schemas";
 
 function buildSystemPrompt(offer: Offer): string {
   return `You are Scout, the analysis engine inside IntentScout, an AI demand-intelligence platform.
@@ -19,8 +17,10 @@ THE BUSINESS
 - Explicitly excluded audiences: ${offer.excludedAudiences || "none stated"}
 - Brand voice: ${offer.brandVoice || "not specified"}
 
+The current date and time is ${new Date().toISOString()}. Use this to judge recency — you are not told "now" any other way.
+
 SCORING RULES
-- intent_score: does this person show CURRENT, real buying intent — explicit request for help/a provider, stated problem, urgency, recency, specificity, willingness to spend, a prior failed solution? Casual chat, hypotheticals, purely educational discussion, or an already-solved problem push this DOWN.
+- intent_score: does this person show CURRENT, real buying intent — explicit request for help/a provider, stated problem, urgency, recency, specificity, willingness to spend, a prior failed solution? Casual chat, hypotheticals, purely educational discussion, or an already-solved problem push this DOWN. Treat staleness as a hard discount, not a minor factor: a conversation more than a few weeks old should score low on intent even if the original text reads as urgent, because the person was very likely already helped, moved on, or lost interest — someone reading a months-old post has no real reason to believe the need is still open. Weeks-old = noticeably lower; months-old = treat as very low intent regardless of how the text reads, and is_opportunity should usually be false unless something in the text itself indicates the need is ongoing (e.g. "still looking after months").
 - fit_score: how well does this match the business's offer, ideal customer, price range, geography, and exclusions above?
 - match_score: your overall judgment combining intent and fit — but you must still report intent_score and fit_score honestly and separately. Never let one silently stand in for the other.
 - confidence: how sure are you that your read of this conversation is correct, independent of how good the match is?
@@ -30,14 +30,14 @@ SCORING RULES
 CRITICAL — ZERO-RESULT INTEGRITY
 Set is_opportunity to FALSE whenever the conversation is not a genuine, actionable match. This is the expected, common outcome — most conversations are not opportunities. Do NOT lower your standards, pad the results, or talk yourself into a weak match to seem useful. Never invent facts, quotes, or intent that aren't actually present in the text. Base every score and every reasoning bullet only on what's in the conversation and the business profile above.
 
-Call the ${TOOL_NAME} tool with your structured result. Always call it, even when is_opportunity is false — in that case the other fields can reflect your best honest read, they simply won't be stored.`;
+Return your result even when is_opportunity is false — in that case the other fields can reflect your best honest read, they simply won't be stored.`;
 }
 
 export async function analyzeConversation(
   conversation: NormalizedConversation,
   offer: Offer
 ): Promise<AnalysisResult | null> {
-  const client = getAnthropicClient();
+  const client = getGeminiClient();
 
   const userContent = [
     conversation.title ? `Title: ${conversation.title}` : null,
@@ -49,29 +49,29 @@ export async function analyzeConversation(
     .filter(Boolean)
     .join("\n");
 
-  const response = await client.messages.create({
+  const response = await client.models.generateContent({
     model: ANALYSIS_MODEL,
-    max_tokens: 1024,
-    system: buildSystemPrompt(offer),
-    messages: [{ role: "user", content: userContent }],
-    tools: [
-      {
-        name: TOOL_NAME,
-        description: "Record the structured analysis result for this conversation.",
-        // The Anthropic SDK expects a plain JSON Schema object here; our hand-authored
-        // schema is typed as a readonly literal for editor safety, so it's widened at the call site.
-        input_schema: analysisToolInputSchema as unknown as { type: "object"; properties: Record<string, unknown> },
-      },
-    ],
-    tool_choice: { type: "tool", name: TOOL_NAME },
+    contents: userContent,
+    config: {
+      systemInstruction: buildSystemPrompt(offer),
+      responseMimeType: "application/json",
+      responseSchema: analysisResponseSchema,
+    },
   });
 
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Scout's analysis call did not return a structured result.");
+  const raw = response.text;
+  if (!raw) {
+    throw new Error("Scout's analysis call did not return a result.");
   }
 
-  const parsed = analysisResultSchema.safeParse(toolUse.input);
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error("Scout's analysis result was not valid JSON.");
+  }
+
+  const parsed = analysisResultSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error(`Scout's analysis result failed validation: ${parsed.error.message}`);
   }

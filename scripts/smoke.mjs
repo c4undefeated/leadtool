@@ -37,23 +37,33 @@ try {
   const keywordCount = await page.locator("text=looking for a coach").count();
   check("campaign seeded with vertical template keywords", keywordCount > 0);
 
-  // Manual import — without ANTHROPIC_API_KEY, should show a clear, honest error (not a fake result)
+  // Manual import — behavior branches on whether GEMINI_API_KEY is actually set for
+  // the server process (this script doesn't set it; it reads whatever the running
+  // `next start`/`next dev` process was launched with).
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
   await page.fill('textarea[name="originalText"]', "Looking for an online coach, I've plateaued for a year.");
   await page.fill('input[name="url"]', "https://example.com/smoke-test-post");
   await page.click('button:has-text("Analyze this conversation")');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(geminiConfigured ? 8000 : 1500);
   const bodyText = await page.textContent("body");
-  check(
-    "manual import fails honestly when ANTHROPIC_API_KEY is unset (no fabricated result)",
-    bodyText.includes("ANTHROPIC_API_KEY")
-  );
+  if (geminiConfigured) {
+    check(
+      "manual import returns a real Scout result when GEMINI_API_KEY is set (no crash, no silent no-op)",
+      bodyText.includes("Scout found") || bodyText.includes("Scout reviewed")
+    );
+  } else {
+    check(
+      "manual import fails honestly when GEMINI_API_KEY is unset (no fabricated result)",
+      bodyText.includes("GEMINI_API_KEY")
+    );
+  }
 
-  // Opportunities feed — should show the honest empty state, not fabricated cards
+  // Opportunities feed — either the honest empty state, or a real card. Never fabricated filler either way.
   await page.goto(`${BASE}/opportunities`);
   const feedText = await page.textContent("body");
   check(
-    "opportunities feed shows honest 'no strong opportunities' empty state",
-    feedText.includes("No strong opportunities found")
+    "opportunities feed shows an honest result (empty state or a real analyzed opportunity)",
+    feedText.includes("No strong opportunities found") || feedText.includes("Match ")
   );
 
   // Campaigns list page

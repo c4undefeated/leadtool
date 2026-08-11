@@ -7,7 +7,7 @@
  * and false-positive rate before trusting the scoring in front of a real
  * prospect (implementation plan, Phase 7 / spec section 18).
  *
- * Requires ANTHROPIC_API_KEY. Run with: npm run eval
+ * Requires GEMINI_API_KEY. Run with: npm run eval
  */
 import { analyzeConversation } from "@/lib/ai/analysis";
 import { AiNotConfiguredError } from "@/lib/ai/client";
@@ -49,7 +49,7 @@ async function main() {
       }
     } catch (err) {
       if (err instanceof AiNotConfiguredError) {
-        console.log("SKIP  ANTHROPIC_API_KEY not set");
+        console.log("SKIP  GEMINI_API_KEY not set");
         continue;
       }
       fail += 1;

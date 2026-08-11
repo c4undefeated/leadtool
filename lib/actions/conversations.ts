@@ -34,7 +34,7 @@ export async function importConversationAction(
   if (!isAiConfigured()) {
     return {
       error:
-        "ANTHROPIC_API_KEY is not set, so Scout can't analyze anything yet. Add it to .env and restart — see README.md.",
+        "GEMINI_API_KEY is not set, so Scout can't analyze anything yet. Add it to .env and restart — see README.md.",
     };
   }
 
@@ -73,7 +73,7 @@ export type ScanState = { error?: string; success?: string } | undefined;
 export async function runScanAction(campaignId: string): Promise<ScanState> {
   await ownedCampaign(campaignId);
   if (!isAiConfigured()) {
-    return { error: "ANTHROPIC_API_KEY is not set — analysis is unavailable until it is." };
+    return { error: "GEMINI_API_KEY is not set — analysis is unavailable until it is." };
   }
   const result = await runScanForCampaign(campaignId);
   revalidatePath(`/campaigns/${campaignId}`);
