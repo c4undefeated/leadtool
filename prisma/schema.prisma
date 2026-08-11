@@ -7,9 +7,13 @@
 // Offer for the same reason: one company has exactly one active offer/ICP
 // pair in V1.
 
+// Supabase Postgres. DATABASE_URL should be the pooled (pgbouncer, port
+// 6543) connection string for runtime queries; DIRECT_URL is the direct
+// (port 5432) connection Prisma needs for migrations. See README.md.
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {

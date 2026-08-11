@@ -12,5 +12,5 @@ export function defaultSourceType(): "reddit" | "manual" {
 }
 
 export function isAiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return Boolean(process.env.GEMINI_API_KEY);
 }

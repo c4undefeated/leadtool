@@ -1,14 +1,12 @@
 import type { Offer } from "@prisma/client";
 import type { NormalizedConversation } from "@/lib/sources/types";
-import { getAnthropicClient, ENGAGEMENT_MODEL } from "./client";
+import { getGeminiClient, ENGAGEMENT_MODEL } from "./client";
 import {
   engagementResultSchema,
-  engagementToolInputSchema,
+  engagementResponseSchema,
   ENGAGEMENT_PROMPT_VERSION,
   type EngagementResult,
 } from "./schemas";
-
-const TOOL_NAME = "record_engagement";
 
 function buildSystemPrompt(offer: Offer, detectedNeed: string, safetyLabel: string, safetyReason: string): string {
   const style =
@@ -36,7 +34,7 @@ RULES
 - Only fill in comment_draft/comment_why when strategy is "comment"; only fill in dm_draft/dm_why when strategy is "dm". Leave the other pair null. Leave both null when strategy is "monitor" or "none".
 - "_why" fields should explain, briefly, what in the conversation shaped the draft and why that tone/CTA choice was made — this is shown to the user as "Why this response?".
 
-Call the ${TOOL_NAME} tool with your result.`;
+Return your structured result.`;
 }
 
 export async function generateEngagementRecommendation(
@@ -46,7 +44,7 @@ export async function generateEngagementRecommendation(
   safetyLabel: string,
   safetyReason: string
 ): Promise<EngagementResult> {
-  const client = getAnthropicClient();
+  const client = getGeminiClient();
 
   const userContent = [
     conversation.title ? `Title: ${conversation.title}` : null,
@@ -58,27 +56,29 @@ export async function generateEngagementRecommendation(
     .filter(Boolean)
     .join("\n");
 
-  const response = await client.messages.create({
+  const response = await client.models.generateContent({
     model: ENGAGEMENT_MODEL,
-    max_tokens: 1024,
-    system: buildSystemPrompt(offer, detectedNeed, safetyLabel, safetyReason),
-    messages: [{ role: "user", content: userContent }],
-    tools: [
-      {
-        name: TOOL_NAME,
-        description: "Record the engagement strategy and any drafted response.",
-        input_schema: engagementToolInputSchema as unknown as { type: "object"; properties: Record<string, unknown> },
-      },
-    ],
-    tool_choice: { type: "tool", name: TOOL_NAME },
+    contents: userContent,
+    config: {
+      systemInstruction: buildSystemPrompt(offer, detectedNeed, safetyLabel, safetyReason),
+      responseMimeType: "application/json",
+      responseSchema: engagementResponseSchema,
+    },
   });
 
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Scout's engagement call did not return a structured result.");
+  const raw = response.text;
+  if (!raw) {
+    throw new Error("Scout's engagement call did not return a result.");
   }
 
-  const parsed = engagementResultSchema.safeParse(toolUse.input);
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error("Scout's engagement result was not valid JSON.");
+  }
+
+  const parsed = engagementResultSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error(`Scout's engagement result failed validation: ${parsed.error.message}`);
   }

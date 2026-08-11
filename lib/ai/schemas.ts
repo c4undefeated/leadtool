@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { Type, type Schema } from "@google/genai";
 
-export const ANALYSIS_PROMPT_VERSION = "analysis-v1";
-export const ENGAGEMENT_PROMPT_VERSION = "engagement-v1";
+export const ANALYSIS_PROMPT_VERSION = "analysis-v1-gemini";
+export const ENGAGEMENT_PROMPT_VERSION = "engagement-v1-gemini";
 
 export const analysisResultSchema = z.object({
   is_opportunity: z.boolean(),
@@ -19,31 +20,31 @@ export const analysisResultSchema = z.object({
 
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 
-/** Hand-authored JSON Schema for Claude's tool_use — kept in lockstep with analysisResultSchema above. */
-export const analysisToolInputSchema = {
-  type: "object",
+/** Gemini structured-output schema, kept in lockstep with analysisResultSchema above. */
+export const analysisResponseSchema: Schema = {
+  type: Type.OBJECT,
   properties: {
     is_opportunity: {
-      type: "boolean",
+      type: Type.BOOLEAN,
       description:
         "False if this conversation is NOT a genuine, actionable buying-intent opportunity for this business — casual chat, hypothetical, spam, already-solved, or too vague. It is normal and expected for this to be false.",
     },
-    intent_score: { type: "integer", minimum: 0, maximum: 100 },
-    fit_score: { type: "integer", minimum: 0, maximum: 100 },
-    match_score: { type: "integer", minimum: 0, maximum: 100 },
-    confidence: { type: "string", enum: ["low", "medium", "high"] },
-    detected_need: { type: "string", description: "Plain-language description of what the person appears to need." },
-    why_now: { type: "string", description: "Why this specific moment matters — recency, urgency, explicit ask." },
+    intent_score: { type: Type.INTEGER, minimum: 0, maximum: 100 },
+    fit_score: { type: Type.INTEGER, minimum: 0, maximum: 100 },
+    match_score: { type: Type.INTEGER, minimum: 0, maximum: 100 },
+    confidence: { type: Type.STRING, enum: ["low", "medium", "high"] },
+    detected_need: { type: Type.STRING, description: "Plain-language description of what the person appears to need." },
+    why_now: { type: Type.STRING, description: "Why this specific moment matters — recency, urgency, explicit ask." },
     reasoning: {
-      type: "array",
-      items: { type: "string" },
-      minItems: 1,
-      maxItems: 8,
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      minItems: "1",
+      maxItems: "8",
       description: "Short bullet points explaining the scores, grounded only in the text provided.",
     },
-    safety_label: { type: "string", enum: ["safe", "caution", "not_safe"] },
-    safety_reason: { type: "string", description: "Specific reason for the safety label, citing community context if known." },
-    recommended_action: { type: "string", enum: ["comment", "dm", "monitor", "none"] },
+    safety_label: { type: Type.STRING, enum: ["safe", "caution", "not_safe"] },
+    safety_reason: { type: Type.STRING, description: "Specific reason for the safety label, citing community context if known." },
+    recommended_action: { type: Type.STRING, enum: ["comment", "dm", "monitor", "none"] },
   },
   required: [
     "is_opportunity",
@@ -58,7 +59,7 @@ export const analysisToolInputSchema = {
     "safety_reason",
     "recommended_action",
   ],
-} as const;
+};
 
 export const engagementResultSchema = z.object({
   strategy: z.enum(["comment", "dm", "monitor", "none"]),
@@ -71,18 +72,18 @@ export const engagementResultSchema = z.object({
 
 export type EngagementResult = z.infer<typeof engagementResultSchema>;
 
-export const engagementToolInputSchema = {
-  type: "object",
+export const engagementResponseSchema: Schema = {
+  type: Type.OBJECT,
   properties: {
-    strategy: { type: "string", enum: ["comment", "dm", "monitor", "none"] },
-    strategy_reason: { type: "string" },
-    comment_draft: { type: ["string", "null"], description: "Null unless strategy is comment." },
-    comment_why: { type: ["string", "null"] },
-    dm_draft: { type: ["string", "null"], description: "Null unless strategy is dm." },
-    dm_why: { type: ["string", "null"] },
+    strategy: { type: Type.STRING, enum: ["comment", "dm", "monitor", "none"] },
+    strategy_reason: { type: Type.STRING },
+    comment_draft: { type: Type.STRING, nullable: true, description: "Null unless strategy is comment." },
+    comment_why: { type: Type.STRING, nullable: true },
+    dm_draft: { type: Type.STRING, nullable: true, description: "Null unless strategy is dm." },
+    dm_why: { type: Type.STRING, nullable: true },
   },
   required: ["strategy", "strategy_reason", "comment_draft", "comment_why", "dm_draft", "dm_why"],
-} as const;
+};
 
 export function priorityTierFromMatchScore(matchScore: number): "high" | "potential" | "low" {
   if (matchScore >= 85) return "high";
