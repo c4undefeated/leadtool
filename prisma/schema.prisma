@@ -1,0 +1,167 @@
+// IntentScout V1 data model.
+//
+// Design note: AIAnalysis, PipelineStatus, and Outcome from the spec are
+// folded directly onto Opportunity rather than split into separate 1:1
+// tables — they never exist independently of an Opportunity and splitting
+// them buys no query or evolution benefit at V1 scale. ICP fields live on
+// Offer for the same reason: one company has exactly one active offer/ICP
+// pair in V1.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model Company {
+  id        String     @id @default(cuid())
+  name      String
+  users     User[]
+  offer     Offer?
+  campaigns Campaign[]
+  createdAt DateTime   @default(now())
+}
+
+/// Offer + ICP definition captured during onboarding (spec section 3).
+model Offer {
+  id                  String   @id @default(cuid())
+  companyId           String   @unique
+  company             Company  @relation(fields: [companyId], references: [id])
+  verticalTemplateKey String
+  businessType        String
+  whatYouSell         String
+  problemsSolved      String
+  idealCustomer       String
+  priceRangeMin        Int?
+  priceRangeMax        Int?
+  geography           String?
+  excludedAudiences   String?
+  brandVoice          String?
+  engagementStyle     String?
+  updatedAt           DateTime @updatedAt
+}
+
+model Campaign {
+  id            String         @id @default(cuid())
+  companyId     String
+  company       Company        @relation(fields: [companyId], references: [id])
+  name          String
+  status        String         @default("active") // active | paused
+  sourceType    String // "reddit" | "manual"
+  exclusions    String?
+  keywords      Keyword[]
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+}
+
+model Keyword {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  term       String
+  type       String   @default("keyword") // keyword | subreddit | topic
+}
+
+/// The normalized object every SourceAdapter must produce. No adapter-specific
+/// fields live here beyond the generic `metadata` JSON blob (spec section 4).
+model Conversation {
+  id           String       @id @default(cuid())
+  campaignId   String
+  campaign     Campaign     @relation(fields: [campaignId], references: [id])
+  source       String // "reddit" | "manual"
+  sourceId     String? // external id for dedup; null for manual imports
+  authorRef    String?
+  title        String?
+  originalText String
+  url          String
+  community    String?
+  postedAt     DateTime
+  ingestedAt   DateTime     @default(now())
+  metadata     String? // opaque JSON, source-specific, never read by analysis/UI logic
+  opportunity  Opportunity?
+
+  @@unique([source, sourceId])
+}
+
+model Opportunity {
+  id             String   @id @default(cuid())
+  conversationId String   @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  // --- five distinct intelligence dimensions (spec section 5 / 22) ---
+  intentScore  Int
+  fitScore     Int
+  matchScore   Int
+  confidence   String // low | medium | high
+  safetyLabel  String // safe | caution | not_safe
+  safetyReason String
+
+  detectedNeed      String
+  whyNow            String
+  reasoning         String // JSON-stringified string[]
+  recommendedAction String // comment | dm | monitor | none
+  priorityTier      String // high | potential | low
+  promptVersion     String
+  analyzedAt        DateTime @default(now())
+
+  // --- lightweight pipeline (spec section 10) ---
+  status         String   @default("new") // new|reviewed|saved|dismissed|contacted|replied|qualified|won|lost
+  estimatedValue Int?
+  outcome        String? // won | lost, set when status reaches a terminal state
+
+  engagementRecommendations EngagementRecommendation[]
+  activity                  Activity[]
+}
+
+model EngagementRecommendation {
+  id             String       @id @default(cuid())
+  opportunityId  String
+  opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
+  strategy       String // comment | dm | monitor | none
+  strategyReason String
+  createdAt      DateTime     @default(now())
+  commentDraft   CommentDraft?
+  dmDraft        DMDraft?
+}
+
+model CommentDraft {
+  id                          String                   @id @default(cuid())
+  engagementRecommendationId String                   @unique
+  engagementRecommendation   EngagementRecommendation @relation(fields: [engagementRecommendationId], references: [id])
+  text                        String
+  whyThisResponse             String
+  version                     Int                      @default(1)
+  createdAt                   DateTime                 @default(now())
+}
+
+model DMDraft {
+  id                          String                   @id @default(cuid())
+  engagementRecommendationId String                   @unique
+  engagementRecommendation   EngagementRecommendation @relation(fields: [engagementRecommendationId], references: [id])
+  text                        String
+  whyThisResponse             String
+  version                     Int                      @default(1)
+  createdAt                   DateTime                 @default(now())
+}
+
+model Activity {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  event         String
+  note          String?
+  at            DateTime    @default(now())
+}
