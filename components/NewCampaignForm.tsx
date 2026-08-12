@@ -10,7 +10,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded-md bg-ink text-paper font-mono text-sm px-4 py-2 disabled:opacity-60"
+      className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm px-4 py-2 disabled:opacity-60"
     >
       {pending ? "Creating…" : "Create campaign"}
     </button>
@@ -25,7 +25,7 @@ export function NewCampaignForm() {
         name="name"
         required
         placeholder="e.g. Fitness coaching — US"
-        className="rounded-md border border-line bg-white px-3 py-2 text-sm"
+        className="rounded-md border border-line bg-surface px-3 py-2 text-sm"
       />
       {state?.error && <p className="text-sm text-risk">{state.error}</p>}
       <SubmitButton />

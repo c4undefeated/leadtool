@@ -45,7 +45,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         </blockquote>
       </div>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <ScoreBlock label="Intent" value={opportunity.intentScore} />
           <ScoreBlock label="Fit" value={opportunity.fitScore} />
@@ -75,7 +75,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         </ul>
       </section>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">Engage</h2>
         <EngagementPanel
           opportunityId={opportunity.id}
@@ -103,7 +103,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         />
       </section>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">Pipeline</h2>
         <StatusControl
           opportunityId={opportunity.id}

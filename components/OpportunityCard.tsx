@@ -30,7 +30,7 @@ export function OpportunityCard({ opportunity }: { opportunity: CardOpportunity 
   return (
     <Link
       href={`/opportunities/${opportunity.id}`}
-      className="block rounded-lg border border-line bg-white p-5 hover:border-accent/50 transition"
+      className="block rounded-lg border border-line bg-surface p-5 hover:border-accent/50 transition"
     >
       <div className="flex items-start justify-between gap-3 mb-2">
         <span className="font-mono text-xs text-muted">

@@ -30,7 +30,7 @@ export default async function OpportunitiesPage() {
       </div>
 
       {opportunities.length === 0 && (
-        <div className="rounded-lg border border-dashed border-line p-8 text-center">
+        <div className="rounded-lg border border-dashed border-line bg-surface p-8 text-center">
           <p className="font-display text-xl mb-2">No strong opportunities found.</p>
           <p className="text-muted text-sm max-w-md mx-auto">
             That's a valid, honest result — Scout doesn't invent leads to fill the feed. Run a scan or

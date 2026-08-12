@@ -5,14 +5,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        paper: "#F5F3EC",
-        ink: "#1D1A14",
-        muted: "#6B6455",
-        accent: "#B5541F",
-        line: "#E1DAC6",
-        good: "#3E7A52",
-        caution: "#8F6A16",
-        risk: "#A8402E",
+        // Dark, high-contrast SaaS palette.
+        paper: "#0B0F17", // primary background
+        surface: "#161E2E", // card / section background
+        ink: "#F8FAFC", // main text
+        muted: "#94A3B8", // secondary text
+        accent: "#10B981", // primary action green
+        "accent-hover": "#059669",
+        line: "#2D3748", // borders
+        good: "#34D399",
+        caution: "#F59E0B",
+        risk: "#F87171",
       },
       fontFamily: {
         display: ["var(--font-display)", "serif"],

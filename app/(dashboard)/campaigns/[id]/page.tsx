@@ -40,7 +40,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </form>
       </div>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">Live scanning ({campaign.sourceType})</h2>
         {!aiReady && (
           <p className="text-sm text-caution mb-2">
@@ -61,7 +61,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         />
       </section>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">Keywords &amp; communities</h2>
         <div className="flex flex-col gap-2 mb-4">
           {keywords.map((k) => (
@@ -74,7 +74,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <input
             name="term"
             placeholder="Add a keyword or phrase"
-            className="flex-1 rounded-md border border-line bg-white px-3 py-2 text-sm"
+            className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
           />
           <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
             Add
@@ -93,7 +93,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <input
             name="term"
             placeholder="Add a subreddit (no r/ prefix)"
-            className="flex-1 rounded-md border border-line bg-white px-3 py-2 text-sm"
+            className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
           />
           <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
             Add
@@ -101,7 +101,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </form>
       </section>
 
-      <section className="rounded-lg border border-line bg-white p-5">
+      <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-1">Manual import — validation track</h2>
         <p className="text-sm text-muted mb-4">
           Paste in a real public conversation and Scout will run it through the exact same analysis

@@ -39,7 +39,7 @@ export function EngagementPanel({
               setError(result?.error);
             })
           }
-          className="rounded-md bg-ink text-paper font-mono text-sm px-4 py-2 disabled:opacity-60"
+          className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm px-4 py-2 disabled:opacity-60"
         >
           {pending ? "Thinking…" : hasGenerated ? "Regenerate" : "Recommend engagement"}
         </button>
@@ -55,7 +55,7 @@ export function EngagementPanel({
       {error && <p className="text-sm text-risk">{error}</p>}
 
       {initial && (
-        <div className="rounded-lg border border-line bg-white p-4">
+        <div className="rounded-lg border border-line bg-surface p-4">
           <p className="text-sm mb-3">
             <span className="font-medium">Recommended: </span>
             {ACTION_LABELS[initial.strategy] ?? initial.strategy}
