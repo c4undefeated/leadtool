@@ -125,7 +125,13 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
 
   let conversations: NormalizedConversation[] = [];
   try {
-    conversations = await adapter.search({ keywords, communities, limit: 25 });
+    conversations = await adapter.search({
+      keywords,
+      communities,
+      limit: 25,
+      campaignId: campaign.id,
+      companyId: campaign.companyId,
+    });
   } catch (err) {
     result.errors.push(err instanceof Error ? err.message : "Unknown ingestion error.");
     return result;

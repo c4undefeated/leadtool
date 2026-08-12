@@ -20,24 +20,68 @@ never pretending to have data or results it doesn't have.
 | AI analysis (scoring) + engagement guidance/drafting | Fully working, **requires `GEMINI_API_KEY`** — verified live against real Gemini calls, 10/10 on the eval suite |
 | Manual conversation import (Track A / validation) | Fully working, always available |
 | Contacted tracking (`contactedAt`/`engagementType`/`finalResponse`) | Fully working — distinct from "draft generated," never set by IntentScout itself |
-| Reddit adapter | Code complete, **inert without `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`** |
+| Reddit adapter | Code complete, **inert without `REDDITAPIS_API_KEY`**, read-only |
 | Database | **Live** — Supabase Postgres project `intentscout` (`dalywukhftxlopskrtaq`, us-east-1) |
 | Vercel deployment | **Live** — git-integrated, deploys on push to `main` |
 
-Reddit ingestion needs more than credentials to be legitimately usable in
-production: as of 2026, Reddit requires every developer — including this
-one — to get pre-approval under its Responsible Builder Policy, and
-separately requires explicit written commercial approval (typically a
-contract) before any paid product may read its data, regardless of volume.
-That approval has not been filed from this repo. Until it has:
+### Reddit ingestion: Redditapis, read-only
 
-- Use the **manual import** flow on any campaign to run real public
-  conversations through the exact same production analysis pipeline.
-- The Reddit adapter (`lib/sources/redditAdapter.ts`) is real, working
-  code — app-only OAuth, search, rate-limit tracking — but customers never
-  see it or need a Reddit account either way, live or not, because nothing
-  in V1 posts or messages on Reddit automatically. It only starts running
-  once credentials are present.
+Reddit's *official* API requires every developer to get pre-approval under
+its Responsible Builder Policy, and separately requires explicit written
+commercial approval (typically a contract) before any paid product may
+read its data — that approval has not been filed from this repo, so V1
+doesn't integrate Reddit's official API at all.
+
+Instead, `lib/sources/redditApisAdapter.ts` is backed by **Redditapis**
+(`api.redditapis.com`) — a third-party data provider. To be explicit about
+what that means: Redditapis is **not** Reddit's official API and is **not**
+affiliated with Reddit. Its availability, data provenance, terms, and
+continued access are an external dependency IntentScout monitors (see
+`lib/providers/redditapis/health.ts`), not something this codebase asserts
+or vouches for. IntentScout itself does not attempt to bypass Reddit's
+restrictions, rate limits, authentication, bans, or access controls.
+
+The integration is **read-only, permanently**, regardless of what the
+provider's API surface otherwise exposes:
+
+- Only documented `GET` endpoints are implemented — subreddit listing,
+  keyword search, and the free account/balance check. See
+  `lib/providers/redditapis/client.ts` for the exact list.
+- Redditapis also documents `/login` (returns live Reddit session cookies),
+  `/comment`, `/vote`, and `/dm*` endpoints. **None of these are
+  implemented, and none will be** — IntentScout never authenticates as a
+  Reddit user and never posts, votes, or messages automatically. Every
+  comment/DM draft Scout generates is copy-pasted and sent by a human, same
+  as always (see "Mark Contacted" below).
+- No customer-facing Reddit OAuth exists or is planned.
+
+Everything provider-specific is isolated behind `RedditSourceAdapter`
+(`lib/sources/redditApisAdapter.ts`) and a single client module
+(`lib/providers/redditapis/client.ts`) — nothing else in the codebase
+constructs a Redditapis URL or reads `REDDITAPIS_API_KEY`. Swapping
+providers, or adding direct authorized Reddit access later, means writing
+a new adapter, not rewriting analysis, opportunities, or the UI.
+
+**Cost control.** Redditapis is pay-per-call (`$0.002`/read as of this
+writing). `lib/providers/redditapis/` adds:
+
+- `costLedger.ts` — every call, priced or free, cached or live, gets a
+  `ProviderUsageEvent` row (provider/endpoint/campaign/cost/success).
+- `budget.ts` — blocks a call before it happens if it would push lifetime
+  recorded spend over `REDDITAPIS_MAX_TEST_SPEND_USD` (default `$0.50`,
+  sized around the ~$0.55 initial testing balance), or if live
+  `credits_remaining` (via the free `/account/me` check) is too low.
+- `health.ts` — polls the free balance endpoint (cached ~2 min, not
+  per-request) and reports healthy/warning/critical/unavailable; ingestion
+  pauses gracefully on critical/unavailable rather than erroring the UI.
+- `cache.ts` — a short-TTL (`ProviderRequestCache`) dedup so an accidental
+  double-click doesn't pay for the same request twice.
+- The adapter makes **exactly one** provider call per scan — it never
+  loops per-subreddit — to keep spend predictable.
+
+Use the **manual import** flow on any campaign at any time to run real
+public conversations through the exact same production analysis pipeline,
+independent of whether Redditapis is configured or has balance.
 
 Nothing in the product fabricates data to paper over any of this. If
 `GEMINI_API_KEY` is missing, analysis fails with a clear, visible error
@@ -82,8 +126,9 @@ Env vars — see `.env.example` for the full list and what each unlocks:
 - `GEMINI_API_KEY` — required for any analysis or drafting.
 - `INTENTSCOUT_ANALYSIS_MODEL` / `INTENTSCOUT_ENGAGEMENT_MODEL` — optional,
   both default to `gemini-3.6-flash`.
-- `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` / `REDDIT_USER_AGENT` —
-  optional, only needed once Reddit approval exists (see above).
+- `REDDITAPIS_API_KEY` — optional, only needed to enable live Reddit
+  ingestion via Redditapis (see above). Server-side only, read-only.
+- `REDDITAPIS_MAX_TEST_SPEND_USD` — optional, defaults to `0.50`.
 
 This sandbox specifically cannot make raw Postgres TCP connections
 (outbound is HTTPS-only here) — local `prisma migrate`/`next dev` against
@@ -103,11 +148,12 @@ SourceAdapter (lib/sources/*)
   → Pipeline (lightweight CRM) → Mark Contacted (records how, not that IntentScout sent it)
 ```
 
-Reddit is `SourceAdapter #1` (`lib/sources/redditAdapter.ts`). A second
-source plugs in by implementing `SourceAdapter` (`lib/sources/types.ts`) —
-nothing in analysis, the opportunity model, or the UI references a source
-by name. `lib/sources/manualAdapter.ts` is the always-available validation
-track, not a "real" adapter in the polling sense.
+Reddit is `SourceAdapter #1` (`lib/sources/redditApisAdapter.ts`, backed by
+Redditapis — see above). A second source plugs in by implementing
+`SourceAdapter` (`lib/sources/types.ts`) — nothing in analysis, the
+opportunity model, or the UI references a source by name.
+`lib/sources/manualAdapter.ts` is the always-available validation track,
+not a "real" adapter in the polling sense.
 
 Two AI stages, intentionally separate (`lib/ai/`), both on Gemini via
 `@google/genai`, using `responseSchema` structured-output rather than

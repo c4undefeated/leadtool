@@ -34,6 +34,9 @@ export type SearchParams = {
   keywords: string[];
   communities: string[]; // e.g. subreddit names; adapter interprets meaning
   limit?: number;
+  /** Optional attribution for adapters that meter/bill calls (e.g. cost ledger). Adapters that don't meter usage ignore these. */
+  campaignId?: string;
+  companyId?: string;
 };
 
 export interface SourceAdapter {
