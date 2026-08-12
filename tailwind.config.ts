@@ -10,8 +10,8 @@ const config: Config = {
         surface: "#161E2E", // card / section background
         ink: "#F8FAFC", // main text
         muted: "#94A3B8", // secondary text
-        accent: "#10B981", // primary action green
-        "accent-hover": "#059669",
+        accent: "#EF4444", // primary action red
+        "accent-hover": "#DC2626",
         line: "#2D3748", // borders
         good: "#34D399",
         caution: "#F59E0B",
