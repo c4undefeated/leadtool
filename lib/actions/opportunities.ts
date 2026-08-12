@@ -57,6 +57,32 @@ export async function updateOpportunityStatusAction(formData: FormData): Promise
   revalidatePath(`/opportunities/${opportunityId}`);
 }
 
+/**
+ * Bulk dismiss only — deliberately not a bulk "mark as contacted" or any
+ * kind of bulk send. Dismissing doesn't claim anything happened; marking
+ * contacted in bulk would falsely claim outreach that didn't occur, so
+ * that stays a per-opportunity, human action.
+ */
+export async function bulkDismissAction(opportunityIds: string[]): Promise<{ dismissed: number }> {
+  const user = await requireUser();
+  if (opportunityIds.length === 0) return { dismissed: 0 };
+
+  const owned = await prisma.opportunity.findMany({
+    where: { id: { in: opportunityIds }, conversation: { campaign: { companyId: user.companyId ?? "__none__" } } },
+    select: { id: true },
+  });
+  if (owned.length === 0) return { dismissed: 0 };
+
+  const ids = owned.map((o) => o.id);
+  await prisma.opportunity.updateMany({ where: { id: { in: ids } }, data: { status: "dismissed" } });
+  await prisma.activity.createMany({
+    data: ids.map((id) => ({ opportunityId: id, event: "status_changed:dismissed", note: "Bulk dismissed" })),
+  });
+
+  revalidatePath("/opportunities");
+  return { dismissed: ids.length };
+}
+
 export type MarkContactedState = { error?: string } | undefined;
 
 /**
