@@ -177,3 +177,39 @@ model Activity {
   note          String?
   at            DateTime    @default(now())
 }
+
+/// Every call made to an external ingestion provider (currently only
+/// Redditapis), successful or not, priced or free. This is the ledger the
+/// budget guard and margin/health reporting read from — never inferred,
+/// always recorded at the moment the call happens.
+model ProviderUsageEvent {
+  id           String   @id @default(cuid())
+  provider     String // "redditapis"
+  endpoint     String // e.g. "GET /api/reddit/search"
+  requestType  String // "search" | "posts" | "account"
+  campaignId   String?
+  companyId    String?
+  unitCostUsd  Float // 0 for free endpoints
+  cacheHit     Boolean  @default(false) // true when served from ProviderRequestCache — no spend, still logged
+  success      Boolean
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([campaignId])
+}
+
+/// Short-TTL cache of provider responses keyed by the exact request made.
+/// Purely a spend guard — if the same campaign fires the same query twice
+/// inside the TTL window (e.g. a double click), the second call is served
+/// from here instead of paying Redditapis again.
+model ProviderRequestCache {
+  id           String   @id @default(cuid())
+  provider     String
+  cacheKey     String   @unique
+  responseJson String // JSON-stringified provider response
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
+}

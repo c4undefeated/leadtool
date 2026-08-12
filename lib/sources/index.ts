@@ -1,10 +1,10 @@
 import type { SourceAdapter } from "./types";
 import { ManualAdapter } from "./manualAdapter";
-import { RedditAdapter } from "./redditAdapter";
+import { RedditApisSourceAdapter } from "./redditApisAdapter";
 
 const adapters: Record<string, SourceAdapter> = {
   manual: new ManualAdapter(),
-  reddit: new RedditAdapter(),
+  reddit: new RedditApisSourceAdapter(),
 };
 
 export function getAdapter(type: string): SourceAdapter {
