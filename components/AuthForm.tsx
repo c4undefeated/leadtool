@@ -10,7 +10,7 @@ function SubmitButton({ label }: { label: string }) {
     <button
       type="submit"
       disabled={pending}
-      className="w-full rounded-md bg-ink text-paper font-mono text-sm tracking-wide py-2.5 disabled:opacity-60"
+      className="w-full rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm tracking-wide py-2.5 disabled:opacity-60"
     >
       {pending ? "Working…" : label}
     </button>
@@ -32,14 +32,14 @@ export function AuthForm({
         <>
           <label className="text-sm text-muted">
             Your name
-            <input name="name" className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2" />
+            <input name="name" className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2" />
           </label>
           <label className="text-sm text-muted">
             Business name
             <input
               name="companyName"
               required
-              className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+              className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
             />
           </label>
         </>
@@ -50,7 +50,7 @@ export function AuthForm({
           name="email"
           type="email"
           required
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
       </label>
       <label className="text-sm text-muted">
@@ -60,7 +60,7 @@ export function AuthForm({
           type="password"
           required
           minLength={8}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
       </label>
       {state?.error && <p className="text-sm text-risk">{state.error}</p>}

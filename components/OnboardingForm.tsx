@@ -11,7 +11,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded-md bg-ink text-paper font-mono text-sm tracking-wide px-5 py-2.5 disabled:opacity-60"
+      className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm tracking-wide px-5 py-2.5 disabled:opacity-60"
     >
       {pending ? "Setting up…" : "Start scanning"}
     </button>
@@ -39,7 +39,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
               className={`text-left rounded-md border px-3 py-2 text-sm transition ${
                 selected.key === t.key
                   ? "border-accent bg-accent/10 text-ink"
-                  : "border-line bg-white text-muted hover:border-ink/30"
+                  : "border-line bg-surface text-muted hover:border-ink/30"
               }`}
             >
               {t.label}
@@ -54,7 +54,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
           name="businessType"
           defaultValue={selected.label !== "Other" ? selected.label : ""}
           key={`bt-${selected.key}`}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Online strength coaching"
         />
       </label>
@@ -67,7 +67,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
           key={`wys-${selected.key}`}
           defaultValue={selected.exampleWhatYouSell}
           rows={2}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
       </label>
 
@@ -78,7 +78,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
           key={`ps-${selected.key}`}
           defaultValue={selected.exampleProblemsSolved}
           rows={2}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
       </label>
 
@@ -90,7 +90,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
           key={`ic-${selected.key}`}
           defaultValue={selected.exampleIdealCustomer}
           rows={2}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
       </label>
 
@@ -101,7 +101,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
             name="priceRangeMin"
             type="number"
             min={0}
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           />
         </label>
         <label className="text-sm text-muted">
@@ -110,7 +110,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
             name="priceRangeMax"
             type="number"
             min={0}
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           />
         </label>
       </div>
@@ -119,7 +119,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Geographic constraints (optional)
         <input
           name="geography"
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Must be in Texas, or leave blank for remote/anywhere"
         />
       </label>
@@ -128,7 +128,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Who should Scout exclude? (optional)
         <input
           name="excludedAudiences"
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Agencies looking to subcontract, students, competitors"
         />
       </label>
@@ -137,7 +137,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Brand voice
         <input
           name="brandVoice"
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Direct, no-nonsense, a little dry"
         />
       </label>
@@ -146,7 +146,7 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Preferred engagement style
         <select
           name="engagementStyle"
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           defaultValue="helpful_first"
         >
           <option value="helpful_first">Help first, mention what I do only if it fits</option>

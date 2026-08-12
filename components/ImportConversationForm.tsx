@@ -10,7 +10,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded-md bg-ink text-paper font-mono text-sm px-4 py-2 disabled:opacity-60"
+      className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm px-4 py-2 disabled:opacity-60"
     >
       {pending ? "Analyzing…" : "Analyze this conversation"}
     </button>
@@ -29,7 +29,7 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
           name="originalText"
           required
           rows={4}
-          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="Paste the post or comment text exactly as written."
         />
       </label>
@@ -40,7 +40,7 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
             name="url"
             required
             type="url"
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
             placeholder="https://reddit.com/..."
           />
         </label>
@@ -48,14 +48,14 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
           Community (optional)
           <input
             name="community"
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
             placeholder="e.g. r/Fitness"
           />
         </label>
       </div>
       <label className="text-sm text-muted">
         Title (optional)
-        <input name="title" className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2" />
+        <input name="title" className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2" />
       </label>
       {state?.error && <p className="text-sm text-risk">{state.error}</p>}
       {state?.success && <p className="text-sm text-good">{state.success}</p>}

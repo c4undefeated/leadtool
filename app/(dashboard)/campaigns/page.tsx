@@ -20,7 +20,7 @@ export default async function CampaignsPage() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-line bg-white p-5 max-w-md">
+      <div className="rounded-lg border border-line bg-surface p-5 max-w-md">
         <h2 className="font-medium text-sm mb-3">New campaign</h2>
         <NewCampaignForm />
       </div>
@@ -30,7 +30,7 @@ export default async function CampaignsPage() {
           <Link
             key={c.id}
             href={`/campaigns/${c.id}`}
-            className="rounded-lg border border-line bg-white p-4 flex items-center justify-between hover:border-accent/50"
+            className="rounded-lg border border-line bg-surface p-4 flex items-center justify-between hover:border-accent/50"
           >
             <div>
               <p className="font-medium">{c.name}</p>

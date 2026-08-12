@@ -18,7 +18,7 @@ export function RunScanButton({ campaignId, disabled, disabledReason }: { campai
             setMessage(result);
           })
         }
-        className="rounded-md bg-accent text-white font-mono text-sm px-4 py-2 disabled:opacity-50"
+        className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm px-4 py-2 disabled:opacity-50"
         title={disabled ? disabledReason : undefined}
       >
         {pending ? "Scanning…" : "Run scan"}

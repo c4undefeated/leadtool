@@ -30,7 +30,7 @@ export function StatusControl({
         <select
           name="status"
           defaultValue={currentStatus}
-          className="mt-1 block rounded-md border border-line bg-white px-3 py-2 text-sm"
+          className="mt-1 block rounded-md border border-line bg-surface px-3 py-2 text-sm"
         >
           {STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
@@ -46,17 +46,17 @@ export function StatusControl({
           type="number"
           min={0}
           defaultValue={estimatedValue ?? ""}
-          className="mt-1 block w-32 rounded-md border border-line bg-white px-3 py-2 text-sm"
+          className="mt-1 block w-32 rounded-md border border-line bg-surface px-3 py-2 text-sm"
         />
       </label>
       <label className="text-xs font-mono text-muted flex-1 min-w-[160px]">
         Note (optional)
-        <input name="note" className="mt-1 block w-full rounded-md border border-line bg-white px-3 py-2 text-sm" />
+        <input name="note" className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm" />
       </label>
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-ink text-paper font-mono text-sm px-4 py-2 disabled:opacity-60"
+        className="rounded-md bg-accent text-paper hover:bg-accent-hover font-mono text-sm px-4 py-2 disabled:opacity-60"
       >
         {pending ? "Saving…" : "Update"}
       </button>
