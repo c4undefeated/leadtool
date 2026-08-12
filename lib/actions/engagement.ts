@@ -47,6 +47,7 @@ export async function generateEngagementAction(opportunityId: string): Promise<G
         opportunityId: opportunity.id,
         strategy: result.strategy,
         strategyReason: result.strategy_reason,
+        avoidGuidance: result.avoid_guidance,
         commentDraft: result.comment_draft
           ? { create: { text: result.comment_draft, whyThisResponse: result.comment_why ?? "" } }
           : undefined,

@@ -41,6 +41,9 @@ export async function updateOpportunityStatusAction(formData: FormData): Promise
       status,
       outcome: status === "won" ? "won" : status === "lost" ? "lost" : opportunity.outcome,
       estimatedValue: estimatedValueRaw ? Number(estimatedValueRaw) : opportunity.estimatedValue,
+      // Set the first time an opportunity reaches "contacted" via any path — never overwritten,
+      // so it always reflects when the user first actually reached out, not the latest status edit.
+      contactedAt: status === "contacted" && !opportunity.contactedAt ? new Date() : opportunity.contactedAt,
       activity: {
         create: {
           event: `status_changed:${status}`,
@@ -52,4 +55,47 @@ export async function updateOpportunityStatusAction(formData: FormData): Promise
 
   revalidatePath("/opportunities");
   revalidatePath(`/opportunities/${opportunityId}`);
+}
+
+export type MarkContactedState = { error?: string } | undefined;
+
+/**
+ * The dedicated "Mark Contacted" action from the Engagement panel — distinct from the
+ * generic status dropdown because it captures HOW the user engaged and, optionally,
+ * exactly what they sent. IntentScout never sets this itself; it only records what the
+ * human reports after sending something externally.
+ */
+export async function markContactedAction(
+  _prev: MarkContactedState,
+  formData: FormData
+): Promise<MarkContactedState> {
+  const opportunityId = String(formData.get("opportunityId") || "");
+  const engagementType = String(formData.get("engagementType") || "").trim();
+  const finalResponse = String(formData.get("finalResponse") || "").trim();
+
+  if (!["comment", "dm", "other"].includes(engagementType)) {
+    return { error: "Choose how you engaged." };
+  }
+
+  const opportunity = await ownedOpportunity(opportunityId);
+
+  await prisma.opportunity.update({
+    where: { id: opportunity.id },
+    data: {
+      status: opportunity.status === "new" || opportunity.status === "reviewed" ? "contacted" : opportunity.status,
+      contactedAt: opportunity.contactedAt ?? new Date(),
+      engagementType,
+      finalResponse: finalResponse || opportunity.finalResponse,
+      activity: {
+        create: {
+          event: "marked_contacted",
+          note: `Engaged via ${engagementType}${finalResponse ? " — final text recorded" : ""}`,
+        },
+      },
+    },
+  });
+
+  revalidatePath("/opportunities");
+  revalidatePath(`/opportunities/${opportunityId}`);
+  return undefined;
 }

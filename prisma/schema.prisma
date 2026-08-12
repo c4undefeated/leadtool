@@ -69,6 +69,7 @@ model Campaign {
   keywords      Keyword[]
   conversations Conversation[]
   createdAt     DateTime       @default(now())
+  lastScanAt    DateTime? // set whenever a scan actually runs (manual or, later, scheduled) — never fabricated
 }
 
 model Keyword {
@@ -126,6 +127,12 @@ model Opportunity {
   estimatedValue Int?
   outcome        String? // won | lost, set when status reaches a terminal state
 
+  // Set only when the user explicitly marks Contacted — distinct from a draft merely
+  // being generated. IntentScout never sets these itself; it never sends anything.
+  contactedAt    DateTime?
+  engagementType String? // comment | dm | other — which channel the user actually used
+  finalResponse  String? // optional: what the user actually sent, if they want it on record
+
   engagementRecommendations EngagementRecommendation[]
   activity                  Activity[]
 }
@@ -136,6 +143,7 @@ model EngagementRecommendation {
   opportunity    Opportunity  @relation(fields: [opportunityId], references: [id])
   strategy       String // comment | dm | monitor | none
   strategyReason String
+  avoidGuidance  String? // "what NOT to say" — spec section 9
   createdAt      DateTime     @default(now())
   commentDraft   CommentDraft?
   dmDraft        DMDraft?
