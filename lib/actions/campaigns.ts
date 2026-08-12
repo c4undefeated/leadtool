@@ -59,3 +59,14 @@ export async function toggleCampaignStatusAction(formData: FormData): Promise<vo
   });
   revalidatePath(`/campaigns/${campaignId}`);
 }
+
+export async function updateExclusionsAction(formData: FormData): Promise<void> {
+  const campaignId = String(formData.get("campaignId") || "");
+  const exclusions = String(formData.get("exclusions") || "").trim();
+  const { campaign } = await ownedCampaignOrThrow(campaignId);
+  await prisma.campaign.update({
+    where: { id: campaign.id },
+    data: { exclusions: exclusions || null },
+  });
+  revalidatePath(`/campaigns/${campaignId}`);
+}

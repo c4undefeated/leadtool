@@ -37,6 +37,7 @@ export default async function CampaignsPage() {
               <p className="text-xs text-muted font-mono mt-1">
                 {c.keywords.length} keyword{c.keywords.length === 1 ? "" : "s"} · {c._count.conversations} conversation
                 {c._count.conversations === 1 ? "" : "s"} seen
+                {c.lastScanAt ? ` · last scan ${new Date(c.lastScanAt).toLocaleDateString()}` : ""}
               </p>
             </div>
             <span className={`pill ${c.status === "active" ? "pill-good" : "pill-neutral"}`}>{c.status}</span>

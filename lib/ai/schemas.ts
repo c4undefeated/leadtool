@@ -64,6 +64,7 @@ export const analysisResponseSchema: Schema = {
 export const engagementResultSchema = z.object({
   strategy: z.enum(["comment", "dm", "monitor", "none"]),
   strategy_reason: z.string(),
+  avoid_guidance: z.string(),
   comment_draft: z.string().nullable(),
   comment_why: z.string().nullable(),
   dm_draft: z.string().nullable(),
@@ -77,12 +78,17 @@ export const engagementResponseSchema: Schema = {
   properties: {
     strategy: { type: Type.STRING, enum: ["comment", "dm", "monitor", "none"] },
     strategy_reason: { type: Type.STRING },
+    avoid_guidance: {
+      type: Type.STRING,
+      description:
+        "What NOT to say or do here — e.g. don't lead with a pitch, don't claim results not stated, don't ignore the community's no-solicitation norms. Always present, even for a comment/dm strategy.",
+    },
     comment_draft: { type: Type.STRING, nullable: true, description: "Null unless strategy is comment." },
     comment_why: { type: Type.STRING, nullable: true },
     dm_draft: { type: Type.STRING, nullable: true, description: "Null unless strategy is dm." },
     dm_why: { type: Type.STRING, nullable: true },
   },
-  required: ["strategy", "strategy_reason", "comment_draft", "comment_why", "dm_draft", "dm_why"],
+  required: ["strategy", "strategy_reason", "avoid_guidance", "comment_draft", "comment_why", "dm_draft", "dm_why"],
 };
 
 export function priorityTierFromMatchScore(matchScore: number): "high" | "potential" | "low" {

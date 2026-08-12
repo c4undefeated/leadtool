@@ -131,6 +131,10 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     return result;
   }
 
+  // A scan genuinely ran at this point, regardless of how many opportunities it finds —
+  // record that honestly, separate from whether anything strong came out of it.
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { lastScanAt: new Date() } });
+
   for (const nc of conversations) {
     try {
       const { conversation, isNew } = await ingestOne(campaignId, nc);

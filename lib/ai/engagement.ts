@@ -33,6 +33,7 @@ RULES
 - Match the brand voice and the requested engagement style.
 - Only fill in comment_draft/comment_why when strategy is "comment"; only fill in dm_draft/dm_why when strategy is "dm". Leave the other pair null. Leave both null when strategy is "monitor" or "none".
 - "_why" fields should explain, briefly, what in the conversation shaped the draft and why that tone/CTA choice was made — this is shown to the user as "Why this response?".
+- avoid_guidance is always required, regardless of strategy: one or two concrete sentences on what NOT to do here specifically (e.g. don't lead with price, don't claim a specific result, don't ignore that this subreddit dislikes self-promotion) — grounded in the actual conversation and safety context, not generic advice.
 
 Return your structured result.`;
 }
