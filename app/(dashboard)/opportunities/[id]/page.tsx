@@ -27,6 +27,19 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   const safety = SAFETY_LABELS[opportunity.safetyLabel] ?? SAFETY_LABELS.caution!;
   const latest = opportunity.engagementRecommendations[0] ?? null;
 
+  // Reddit's own DM compose, pre-addressed to this conversation's author —
+  // only buildable when we actually have a Reddit username in the expected
+  // "u/name" shape. Manual imports from other platforms fall back to
+  // opening the original post instead (see EngagementPanel).
+  const conversation = opportunity.conversation;
+  const redditUsername =
+    conversation.source === "reddit" && conversation.authorRef?.startsWith("u/")
+      ? conversation.authorRef.slice(2)
+      : null;
+  const dmComposeUrl = redditUsername
+    ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(redditUsername)}`
+    : null;
+
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
       {/* TOP — what this is, at a glance */}
@@ -98,6 +111,7 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         <EngagementPanel
           opportunityId={opportunity.id}
           originalUrl={opportunity.conversation.url}
+          dmComposeUrl={dmComposeUrl}
           safetyLabel={opportunity.safetyLabel}
           contactedAt={opportunity.contactedAt}
           initial={
