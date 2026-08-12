@@ -6,7 +6,7 @@ import { OnboardingForm } from "@/components/OnboardingForm";
 export default async function OnboardingPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.company?.offer) redirect("/opportunities");
+  if (user.company?.offer) redirect("/dashboard");
 
   return (
     <main className="min-h-screen px-4 py-12">

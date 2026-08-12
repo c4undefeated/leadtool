@@ -6,5 +6,5 @@ export default async function RootPage() {
   const user = await getCurrentUser();
   if (!user) return <HomePage />;
   if (!user.company?.offer) redirect("/onboarding");
-  redirect("/opportunities");
+  redirect("/dashboard");
 }
