@@ -26,12 +26,15 @@ const APPROACH_LABEL: Record<string, string> = {
 export function EngagementPanel({
   opportunityId,
   originalUrl,
+  dmComposeUrl,
   safetyLabel,
   contactedAt,
   initial,
 }: {
   opportunityId: string;
   originalUrl: string;
+  /** Deep link to Reddit's own DM compose, pre-addressed to the conversation's author. Null when the source/author don't support it — the DM draft then just falls back to "Open post". */
+  dmComposeUrl: string | null;
   safetyLabel: string;
   contactedAt: string | Date | null;
   initial: Recommendation | null;
@@ -87,8 +90,22 @@ export function EngagementPanel({
             </p>
           )}
 
-          {rec.commentDraft && <DraftBox label="Generate Comment — draft" draft={rec.commentDraft} />}
-          {rec.dmDraft && <DraftBox label="Generate DM — draft" draft={rec.dmDraft} />}
+          {rec.commentDraft && (
+            <DraftBox
+              label="Generate Comment — draft"
+              draft={rec.commentDraft}
+              openUrl={originalUrl}
+              openLabel="Open post to paste it"
+            />
+          )}
+          {rec.dmDraft && (
+            <DraftBox
+              label="Generate DM — draft"
+              draft={rec.dmDraft}
+              openUrl={dmComposeUrl ?? originalUrl}
+              openLabel={dmComposeUrl ? "Open DM to paste it" : "Open post (no DM link available)"}
+            />
+          )}
           {!rec.commentDraft && !rec.dmDraft && (
             <p className="text-sm text-muted italic">
               Scout isn't recommending a comment or DM here — see the reason above.
@@ -102,7 +119,17 @@ export function EngagementPanel({
   );
 }
 
-function DraftBox({ label, draft }: { label: string; draft: NonNullable<Draft> }) {
+function DraftBox({
+  label,
+  draft,
+  openUrl,
+  openLabel,
+}: {
+  label: string;
+  draft: NonNullable<Draft>;
+  openUrl: string;
+  openLabel: string;
+}) {
   const [text, setText] = useState(draft.text);
   const [copied, setCopied] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
@@ -116,7 +143,7 @@ function DraftBox({ label, draft }: { label: string; draft: NonNullable<Draft> }
         rows={4}
         className="w-full rounded-md border border-line bg-paper px-3 py-2 text-sm"
       />
-      <div className="flex items-center gap-3 mt-2">
+      <div className="flex flex-wrap items-center gap-3 mt-2">
         <button
           type="button"
           onClick={() => {
@@ -128,6 +155,14 @@ function DraftBox({ label, draft }: { label: string; draft: NonNullable<Draft> }
         >
           {copied ? "Copied" : "Copy"}
         </button>
+        <a
+          href={openUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-mono rounded-md border border-line px-3 py-1.5"
+        >
+          {openLabel} →
+        </a>
         <button
           type="button"
           onClick={() => setShowWhy((s) => !s)}
@@ -137,6 +172,7 @@ function DraftBox({ label, draft }: { label: string; draft: NonNullable<Draft> }
         </button>
       </div>
       {showWhy && <p className="text-sm text-muted mt-2 italic">{draft.whyThisResponse}</p>}
+      <p className="text-[11px] text-muted mt-1.5 italic">Copy this, then use "{openLabel}" — paste it there yourself and send. IntentScout never sends it for you.</p>
     </div>
   );
 }
