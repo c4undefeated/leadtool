@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { defaultSourceType } from "@/lib/sourceAvailability";
+import { defaultSourceType, isRedditConfigured } from "@/lib/sourceAvailability";
 
 async function ownedCampaignOrThrow(campaignId: string) {
   const user = await requireUser();
@@ -57,6 +57,19 @@ export async function toggleCampaignStatusAction(formData: FormData): Promise<vo
     where: { id: campaign.id },
     data: { status: campaign.status === "active" ? "paused" : "active" },
   });
+  revalidatePath(`/campaigns/${campaignId}`);
+}
+
+// sourceType is decided once, at creation, based on whether Reddit was
+// configured at that moment (see defaultSourceType()) — it never changes
+// itself later just because REDDITAPIS_API_KEY becomes available. This is
+// the explicit, human-triggered way to move a campaign created before that
+// point onto live scanning, instead of leaving it stuck on manual forever.
+export async function switchSourceToRedditAction(formData: FormData): Promise<void> {
+  const campaignId = String(formData.get("campaignId") || "");
+  const { campaign } = await ownedCampaignOrThrow(campaignId);
+  if (campaign.sourceType !== "manual" || !isRedditConfigured()) return;
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { sourceType: "reddit" } });
   revalidatePath(`/campaigns/${campaignId}`);
 }
 

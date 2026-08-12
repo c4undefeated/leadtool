@@ -5,10 +5,11 @@ import { getAdapter } from "@/lib/sources";
 import {
   addKeywordAction,
   removeKeywordAction,
+  switchSourceToRedditAction,
   toggleCampaignStatusAction,
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
-import { isAiConfigured } from "@/lib/sourceAvailability";
+import { isAiConfigured, isRedditConfigured } from "@/lib/sourceAvailability";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -66,6 +67,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <p className="text-sm text-caution mb-2">
             GEMINI_API_KEY is not set — Scout can't analyze anything yet, live or manual.
           </p>
+        )}
+        {campaign.sourceType === "manual" && isRedditConfigured() && (
+          <div className="rounded-md border border-line bg-paper p-3 mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-muted">
+              This campaign was created as manual-only. Reddit ingestion (via Redditapis) is now configured —
+              switch this campaign to live scanning.
+            </p>
+            <form action={switchSourceToRedditAction}>
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <button type="submit" className="shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-paper hover:bg-accent-hover">
+                Switch to live Reddit
+              </button>
+            </form>
+          </div>
         )}
         <p className="text-sm text-muted mb-3">{health.message}</p>
         <RunScanButton
