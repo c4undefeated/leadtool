@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { relativeTime, SAFETY_LABELS, ACTION_LABELS } from "@/lib/format";
+import { relativeTime, SAFETY_LABELS, ACTION_LABELS, INTENT_CATEGORY_LABELS } from "@/lib/format";
 import { updateOpportunityStatusAction } from "@/lib/actions/opportunities";
 
 export type CardOpportunity = {
@@ -13,6 +13,7 @@ export type CardOpportunity = {
   reasoning: string;
   safetyLabel: string;
   recommendedAction: string;
+  intentCategory: string | null;
   priorityTier: string;
   status: string;
   conversation: {
@@ -64,6 +65,9 @@ export function OpportunityCard({ opportunity }: { opportunity: CardOpportunity 
         <div className="flex flex-wrap items-center gap-2">
           <span className={`pill ${safety.className}`}>{safety.text}</span>
           <span className="pill pill-neutral">{ACTION_LABELS[opportunity.recommendedAction] ?? opportunity.recommendedAction}</span>
+          {opportunity.intentCategory && (
+            <span className="pill pill-neutral">{INTENT_CATEGORY_LABELS[opportunity.intentCategory] ?? opportunity.intentCategory}</span>
+          )}
         </div>
       </Link>
 

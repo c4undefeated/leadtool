@@ -12,6 +12,7 @@ export default async function OpportunitiesPage() {
       matchScore: true,
       priorityTier: true,
       safetyLabel: true,
+      intentCategory: true,
       status: true,
       conversation: {
         select: {

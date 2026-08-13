@@ -129,6 +129,10 @@ model Opportunity {
   whyNow            String
   reasoning         String // JSON-stringified string[]
   recommendedAction String // comment | dm | monitor | none
+  // tool_request | alternative_search | comparison | hiring_outsourcing |
+  // troubleshooting | pain_frustration | exploring_solutions | other.
+  // Nullable — rows analyzed before this field existed have no value.
+  intentCategory    String?
   priorityTier      String // high | potential | low
   promptVersion     String
   analyzedAt        DateTime @default(now())

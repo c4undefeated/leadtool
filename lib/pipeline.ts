@@ -170,6 +170,7 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
       safetyLabel: result.safety_label,
       safetyReason: result.safety_reason,
       recommendedAction: result.recommended_action,
+      intentCategory: result.intent_category,
       priorityTier: priorityTierFromMatchScore(result.match_score),
       promptVersion: ANALYSIS_PROMPT_VERSION,
       activity: { create: { event: "surfaced", note: "Scout identified this as a genuine opportunity." } },

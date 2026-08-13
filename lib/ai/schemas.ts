@@ -1,8 +1,19 @@
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
 
-export const ANALYSIS_PROMPT_VERSION = "analysis-v3-gemini";
+export const ANALYSIS_PROMPT_VERSION = "analysis-v4-gemini";
 export const ENGAGEMENT_PROMPT_VERSION = "engagement-v1-gemini";
+
+export const INTENT_CATEGORIES = [
+  "tool_request",
+  "alternative_search",
+  "comparison",
+  "hiring_outsourcing",
+  "troubleshooting",
+  "pain_frustration",
+  "exploring_solutions",
+  "other",
+] as const;
 
 export const analysisResultSchema = z.object({
   is_opportunity: z.boolean(),
@@ -10,6 +21,7 @@ export const analysisResultSchema = z.object({
   fit_score: z.number().int().min(0).max(100),
   match_score: z.number().int().min(0).max(100),
   confidence: z.enum(["low", "medium", "high"]),
+  intent_category: z.enum(INTENT_CATEGORIES),
   detected_need: z.string(),
   why_now: z.string(),
   reasoning: z.array(z.string()).min(1).max(8),
@@ -33,6 +45,12 @@ export const analysisResponseSchema: Schema = {
     fit_score: { type: Type.INTEGER, minimum: 0, maximum: 100 },
     match_score: { type: Type.INTEGER, minimum: 0, maximum: 100 },
     confidence: { type: Type.STRING, enum: ["low", "medium", "high"] },
+    intent_category: {
+      type: Type.STRING,
+      enum: [...INTENT_CATEGORIES],
+      description:
+        "The shape this post's intent takes. tool_request/alternative_search/comparison/hiring_outsourcing/troubleshooting are strong, self-qualifying signals on their own. pain_frustration (venting without explicitly asking for a solution) and exploring_solutions (discussing opinions/experiences, not a personal ask) are weaker — they need real additional signals (specificity, recency, a personal stated need) to justify is_opportunity being true; by themselves they usually shouldn't be. Use \"other\" only when none of these genuinely fit.",
+    },
     detected_need: { type: Type.STRING, description: "Plain-language description of what the person appears to need." },
     why_now: { type: Type.STRING, description: "Why this specific moment matters — recency, urgency, explicit ask." },
     reasoning: {
@@ -52,6 +70,7 @@ export const analysisResponseSchema: Schema = {
     "fit_score",
     "match_score",
     "confidence",
+    "intent_category",
     "detected_need",
     "why_now",
     "reasoning",
