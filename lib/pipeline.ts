@@ -249,10 +249,6 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     return result;
   }
 
-  // A scan genuinely ran at this point, regardless of how many opportunities it finds —
-  // record that honestly, separate from whether anything strong came out of it.
-  await prisma.campaign.update({ where: { id: campaign.id }, data: { lastScanAt: new Date() } });
-
   // Ingest first — cheap, just dedup lookups + inserts, fine to do sequentially.
   // The junk filter runs here too, in memory, before anything reaches the
   // Gemini queue below — it still gets stored (so dedup keeps working next
@@ -292,6 +288,22 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     } catch (err) {
       result.errors.push(err instanceof Error ? err.message : "Unknown error while analyzing a conversation.");
     }
+  });
+
+  // A scan genuinely ran at this point, regardless of how many opportunities it
+  // finds — record that honestly, along with the real breakdown, in one write.
+  // This is what lets the campaign page show real numbers for scans nobody was
+  // watching happen (the daily cron), not just the ones triggered by a click.
+  await prisma.campaign.update({
+    where: { id: campaign.id },
+    data: {
+      lastScanAt: new Date(),
+      lastScanIngested: result.conversationsIngested,
+      lastScanSkippedDuplicates: result.skippedDuplicates,
+      lastScanSkippedJunk: result.skippedJunk,
+      lastScanOpportunities: result.opportunitiesCreated,
+      lastScanCacheHit: result.cacheHit,
+    },
   });
 
   return result;

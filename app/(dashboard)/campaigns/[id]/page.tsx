@@ -60,7 +60,28 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </p>
           <p className="text-xs font-mono text-muted mt-1">
             Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never yet"}
+            {campaign.lastScanCacheHit ? " (served from cache)" : ""}
           </p>
+          {campaign.lastScanAt && campaign.lastScanIngested !== null && (
+            <p className="text-xs font-mono text-muted mt-1">
+              <span className="text-ink">{campaign.lastScanOpportunities}</span> opportunit
+              {campaign.lastScanOpportunities === 1 ? "y" : "ies"} · <span className="text-ink">{campaign.lastScanIngested}</span> ingested ·{" "}
+              <span
+                className="text-ink"
+                title="Already-seen posts (same source + ID) — never re-analyzed, zero additional cost."
+              >
+                {campaign.lastScanSkippedDuplicates}
+              </span>{" "}
+              duplicate{campaign.lastScanSkippedDuplicates === 1 ? "" : "s"} skipped ·{" "}
+              <span
+                className="text-ink"
+                title="Deleted/removed, too short, or spam/bot boilerplate — dropped before reaching Gemini to protect analysis spend."
+              >
+                {campaign.lastScanSkippedJunk}
+              </span>{" "}
+              junk dropped
+            </p>
+          )}
           {campaign.status === "active" && campaign.sourceType !== "manual" && (
             <p className="text-xs font-mono text-muted mt-1">
               Auto-scanned once daily (in addition to any manual runs) while Active — timing isn't exact, see README.

@@ -68,7 +68,15 @@ export async function importConversationAction(
   }
 }
 
-export type ScanState = { error?: string; success?: string } | undefined;
+export type ScanBreakdown = {
+  conversationsIngested: number;
+  opportunitiesCreated: number;
+  skippedDuplicates: number;
+  skippedJunk: number;
+  cacheHit: boolean | null;
+};
+
+export type ScanState = { error: string; result?: undefined } | { error?: undefined; result: ScanBreakdown } | undefined;
 
 export async function runScanAction(campaignId: string): Promise<ScanState> {
   await ownedCampaign(campaignId);
@@ -81,12 +89,12 @@ export async function runScanAction(campaignId: string): Promise<ScanState> {
 
   if (result.errors.length > 0) return { error: result.errors.join(" ") };
   return {
-    success: `${result.cacheHit ? "Served from cache — no provider call made. " : ""}Scanned. ${result.conversationsIngested} new conversation(s)${
-      result.skippedJunk > 0 ? ` (${result.skippedJunk} filtered as junk before analysis)` : ""
-    }${
-      result.skippedDuplicates > 0 ? ` (${result.skippedDuplicates} duplicate${result.skippedDuplicates === 1 ? "" : "s"} skipped)` : ""
-    }, ${result.opportunitiesCreated} genuine opportunit${
-      result.opportunitiesCreated === 1 ? "y" : "ies"
-    } found${result.conversationsIngested > 0 && result.opportunitiesCreated === 0 ? " — no strong opportunities today." : "."}`,
+    result: {
+      conversationsIngested: result.conversationsIngested,
+      opportunitiesCreated: result.opportunitiesCreated,
+      skippedDuplicates: result.skippedDuplicates,
+      skippedJunk: result.skippedJunk,
+      cacheHit: result.cacheHit,
+    },
   };
 }
