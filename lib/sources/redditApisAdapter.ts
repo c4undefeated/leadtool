@@ -43,7 +43,7 @@ export class RedditApisSourceAdapter implements SourceAdapter {
   }
 
   async search(params: SearchParams): Promise<NormalizedConversation[]> {
-    const query = params.keywords.join(" OR ");
+    const query = buildQuery(params.keywords);
     if (!query) return [];
 
     const limit = Math.min(params.limit ?? 25, 100);
@@ -80,6 +80,36 @@ export class RedditApisSourceAdapter implements SourceAdapter {
 
     return recentPosts.map(normalizePost);
   }
+}
+
+// Every production query we've sent with 15+ unquoted keyword phrases
+// joined by " OR " has come back with a literal empty `{"posts":[]}` from
+// Redditapis, including subreddit-scoped sort=new searches against very
+// active communities (r/fitness, r/personaltraining) where an empty
+// result isn't plausible if the query were actually being parsed as a
+// boolean OR of phrases. A shorter, unquoted query did return a real
+// match once. Two changes address the likely cause: quoting each phrase
+// (the standard way to ask a search backend to match it as one unit
+// instead of ANDing/literalizing the raw words), and capping total query
+// length so a long keyword list can't silently produce something the
+// provider can't parse. This has not been verified against a live call
+// from this environment — it's a diagnosis from stored request/response
+// pairs, not a confirmed fix; watch the next real scan's ingested count.
+const MAX_QUERY_LENGTH = 256;
+
+function buildQuery(keywords: string[]): string {
+  const parts: string[] = [];
+  let length = 0;
+  for (const keyword of keywords) {
+    const trimmed = keyword.trim();
+    if (!trimmed) continue;
+    const phrase = `"${trimmed.replace(/"/g, "")}"`;
+    const addition = (parts.length === 0 ? "" : " OR ") + phrase;
+    if (length + addition.length > MAX_QUERY_LENGTH) break;
+    parts.push(phrase);
+    length += addition.length;
+  }
+  return parts.join(" OR ");
 }
 
 function normalizePost(post: RedditapisPost): NormalizedConversation {
