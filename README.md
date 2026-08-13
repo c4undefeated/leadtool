@@ -21,6 +21,7 @@ never pretending to have data or results it doesn't have.
 | Manual conversation import (Track A / validation) | Fully working, always available |
 | Contacted tracking (`contactedAt`/`engagementType`/`finalResponse`) | Fully working — distinct from "draft generated," never set by IntentScout itself |
 | Reddit adapter | Code complete, **inert without `REDDITAPIS_API_KEY`**, read-only |
+| X/Twitter adapter | Code complete, **inert without `TWITTER_API_KEY`**, read-only |
 | Website enrichment (auto-suggest keywords/subreddits/exclusions from a URL) | Fully working, requires `GEMINI_API_KEY` — suggestions only, never auto-saved |
 | Database | **Live** — Supabase Postgres project `intentscout` (`dalywukhftxlopskrtaq`, us-east-1) |
 | Vercel deployment | **Live** — git-integrated, deploys on push to `main` |
@@ -93,13 +94,57 @@ Use the **manual import** flow on any campaign at any time to run real
 public conversations through the exact same production analysis pipeline,
 independent of whether Redditapis is configured or has balance.
 
+### X/Twitter ingestion: TwitterAPIs, read-only
+
+Same governance, same shape, different provider — `lib/sources/twitterApisAdapter.ts`
+and `lib/providers/twitterapis/*` mirror the Reddit integration above
+file-for-file, on purpose. TwitterAPIs (`api.twitterapis.com`) is a
+third-party data provider, **not** X's official API and **not** affiliated
+with X.
+
+Read-only, permanently, same as Reddit:
+
+- Only the documented search endpoint (`GET /twitter/tweet/advanced_search`)
+  and the free account/balance check (`GET /account/me`) are implemented.
+- TwitterAPIs also documents a "Register Session" / "User Login" endpoint —
+  logs into a real X account with a username/password and stores session
+  cookies for authenticated actions. This is the exact same credential-
+  automation shape as Redditapis's `/login`. **Not implemented, and won't
+  be.** Every write endpoint (create/delete tweet, like, retweet, bookmark,
+  follow) and every DM endpoint (inbox, conversation, send) is documented
+  as requiring that same registered session, so all of them are out of
+  scope too — not just the literal write calls.
+- No customer-facing X OAuth exists or is planned.
+
+One real platform difference from Reddit, not glossed over: X's advanced
+search has no documented "scope to a community" operator — there's no
+subreddit-equivalent among its documented operators (`from:`, `to:`,
+`since:`, `until:`, `min_faves:`, `lang:`). So a campaign's "Communities"
+field simply doesn't apply to X/Twitter campaigns (hidden in that case,
+not silently ignored) rather than being mapped to something that isn't
+real. Lead recency works exactly like Reddit's — TwitterAPIs' search
+returns whatever it returns, and the adapter filters strictly on each
+tweet's actual `created_at` before anything is ingested or analyzed.
+
+Pricing: **$0.0008**/search call, account check free, new accounts start
+with ~$0.50 free credit — same cost-ledger/budget/health/cache machinery
+as Reddit, parameterized by provider (`provider: "twitterapis"` in the
+same `ProviderUsageEvent`/`ProviderRequestCache` tables).
+
+A campaign picks **one** source at creation (Reddit, X/Twitter, or
+manual) — this product doesn't scan multiple sources from a single
+campaign. If both Reddit and Twitter are configured, new campaigns get an
+explicit source picker; a campaign created before a second source was
+configured can switch off manual via the same kind of one-way "Switch to
+live X/Twitter" button as Reddit's.
+
 Nothing in the product fabricates data to paper over any of this. If
 `GEMINI_API_KEY` is missing, analysis fails with a clear, visible error
-instead of returning fake scores. If Reddit isn't configured, "Run scan"
-is disabled with an explanation instead of silently doing nothing. If a
-campaign has never been scanned, the UI says "never — scans run on
-demand, not on a schedule" rather than inventing a next-scan time; there
-is no scheduler built yet.
+instead of returning fake scores. If a campaign's source isn't configured,
+"Run scan" is disabled with an explanation instead of silently doing
+nothing. If a campaign has never been scanned, the UI says "never — scans
+run on demand, not on a schedule" rather than inventing a next-scan time;
+there is no scheduler built yet.
 
 ## Infrastructure
 
@@ -139,6 +184,9 @@ Env vars — see `.env.example` for the full list and what each unlocks:
 - `REDDITAPIS_API_KEY` — optional, only needed to enable live Reddit
   ingestion via Redditapis (see above). Server-side only, read-only.
 - `REDDITAPIS_MAX_TEST_SPEND_USD` — optional, defaults to `0.50`.
+- `TWITTER_API_KEY` — optional, only needed to enable live X/Twitter
+  ingestion via TwitterAPIs (see above). Server-side only, read-only.
+- `TWITTER_MAX_TEST_SPEND_USD` — optional, defaults to `0.50`.
 
 This sandbox specifically cannot make raw Postgres TCP connections
 (outbound is HTTPS-only here) — local `prisma migrate`/`next dev` against
@@ -159,11 +207,13 @@ SourceAdapter (lib/sources/*)
 ```
 
 Reddit is `SourceAdapter #1` (`lib/sources/redditApisAdapter.ts`, backed by
-Redditapis — see above). A second source plugs in by implementing
-`SourceAdapter` (`lib/sources/types.ts`) — nothing in analysis, the
-opportunity model, or the UI references a source by name.
-`lib/sources/manualAdapter.ts` is the always-available validation track,
-not a "real" adapter in the polling sense.
+Redditapis — see above); X/Twitter is `SourceAdapter #2`
+(`lib/sources/twitterApisAdapter.ts`, backed by TwitterAPIs, same shape).
+Another source plugs in the same way, by implementing `SourceAdapter`
+(`lib/sources/types.ts`) — nothing in analysis, the opportunity model, or
+the UI references a source by name. `lib/sources/manualAdapter.ts` is the
+always-available validation track, not a "real" adapter in the polling
+sense.
 
 Two AI stages, intentionally separate (`lib/ai/`), both on Gemini via
 `@google/genai`, using `responseSchema` structured-output rather than

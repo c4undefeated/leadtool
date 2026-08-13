@@ -6,10 +6,11 @@ import {
   addKeywordAction,
   removeKeywordAction,
   switchSourceToRedditAction,
+  switchSourceToTwitterAction,
   toggleCampaignStatusAction,
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
-import { isAiConfigured, isRedditConfigured } from "@/lib/sourceAvailability";
+import { isAiConfigured, isRedditConfigured, isTwitterConfigured } from "@/lib/sourceAvailability";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -90,6 +91,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </form>
           </div>
         )}
+        {campaign.sourceType === "manual" && isTwitterConfigured() && (
+          <div className="rounded-md border border-line bg-paper p-3 mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-muted">
+              This campaign was created as manual-only. X/Twitter ingestion (via TwitterAPIs) is now configured —
+              switch this campaign to live scanning.
+            </p>
+            <form action={switchSourceToTwitterAction}>
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <button type="submit" className="shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-paper hover:bg-accent-hover">
+                Switch to live X/Twitter
+              </button>
+            </form>
+          </div>
+        )}
         <p className="text-sm text-muted mb-3">{health.message}</p>
         <div className="flex flex-wrap items-center gap-4 mb-3">
           <RunScanButton
@@ -110,7 +125,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         {campaign.sourceType !== "manual" && (
           <p className="text-xs text-muted">
             Posts older than this are never surfaced, even if they'd otherwise match — recency is enforced
-            against each post's real timestamp, not just requested from Redditapis.
+            against each post's real timestamp, not just requested from the provider.
           </p>
         )}
       </section>
@@ -139,25 +154,31 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </button>
         </form>
 
-        <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Communities</p>
-        <div className="flex flex-col gap-2 mb-4">
-          {communities.map((k) => (
-            <KeywordRow key={k.id} keyword={k} campaignId={campaign.id} />
-          ))}
-          {communities.length === 0 && <p className="text-sm text-muted">No communities yet — searches all of Reddit.</p>}
-        </div>
-        <form action={addKeywordAction} className="flex gap-2 mb-4">
-          <input type="hidden" name="campaignId" value={campaign.id} />
-          <input type="hidden" name="type" value="subreddit" />
-          <input
-            name="term"
-            placeholder="Add a subreddit (no r/ prefix)"
-            className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
-          />
-          <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
-            Add
-          </button>
-        </form>
+        {campaign.sourceType !== "twitter" && (
+          <>
+            <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Communities</p>
+            <div className="flex flex-col gap-2 mb-4">
+              {communities.map((k) => (
+                <KeywordRow key={k.id} keyword={k} campaignId={campaign.id} />
+              ))}
+              {communities.length === 0 && (
+                <p className="text-sm text-muted">No communities yet — searches all of Reddit.</p>
+              )}
+            </div>
+            <form action={addKeywordAction} className="flex gap-2 mb-4">
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <input type="hidden" name="type" value="subreddit" />
+              <input
+                name="term"
+                placeholder="Add a subreddit (no r/ prefix)"
+                className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
+              />
+              <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
+                Add
+              </button>
+            </form>
+          </>
+        )}
 
         <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Exclusions</p>
         <form action={updateExclusionsAction} className="flex gap-2">

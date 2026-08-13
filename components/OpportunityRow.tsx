@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTransition } from "react";
-import { relativeTime, SAFETY_LABELS, STATUS_LABELS } from "@/lib/format";
+import { relativeTime, SAFETY_LABELS, STATUS_LABELS, sourceLabel } from "@/lib/format";
 import { updateOpportunityStatusAction } from "@/lib/actions/opportunities";
 import type { RowOpportunity } from "./OpportunitiesExplorer";
 
@@ -38,9 +38,7 @@ export function OpportunityRow({
 
       <Link href={`/opportunities/${opportunity.id}`} className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className="pill pill-neutral shrink-0">
-            {opportunity.conversation.source === "reddit" ? "Reddit" : "Manual"}
-          </span>
+          <span className="pill pill-neutral shrink-0">{sourceLabel(opportunity.conversation.source)}</span>
           <span className={`pill ${TIER_CLASS[opportunity.priorityTier] ?? "pill-neutral"} shrink-0`}>
             Match {opportunity.matchScore}
           </span>

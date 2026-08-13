@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { defaultSourceType, isRedditConfigured } from "@/lib/sourceAvailability";
+import { defaultSourceType, isRedditConfigured, isTwitterConfigured } from "@/lib/sourceAvailability";
 
 async function ownedCampaignOrThrow(campaignId: string) {
   const user = await requireUser();
@@ -24,8 +24,19 @@ export async function createCampaignAction(_prev: SimpleFormState, formData: For
   const name = String(formData.get("name") || "").trim();
   if (!name) return { error: "Name your campaign." };
 
+  // Only trust an explicitly-chosen source if it's actually configured —
+  // otherwise fall back to the same auto-pick a plain "name only" submit
+  // would get, rather than creating a campaign pointed at a dead source.
+  const requestedSource = String(formData.get("sourceType") || "");
+  const sourceType =
+    (requestedSource === "reddit" && isRedditConfigured()) ||
+    (requestedSource === "twitter" && isTwitterConfigured()) ||
+    requestedSource === "manual"
+      ? (requestedSource as "reddit" | "twitter" | "manual")
+      : defaultSourceType();
+
   const campaign = await prisma.campaign.create({
-    data: { companyId: user.companyId, name, sourceType: defaultSourceType() },
+    data: { companyId: user.companyId, name, sourceType },
   });
 
   redirect(`/campaigns/${campaign.id}`);
@@ -73,6 +84,15 @@ export async function switchSourceToRedditAction(formData: FormData): Promise<vo
   const { campaign } = await ownedCampaignOrThrow(campaignId);
   if (campaign.sourceType !== "manual" || !isRedditConfigured()) return;
   await prisma.campaign.update({ where: { id: campaign.id }, data: { sourceType: "reddit" } });
+  revalidatePath(`/campaigns/${campaignId}`);
+}
+
+/** Same idea as switchSourceToRedditAction, for TwitterAPIs. */
+export async function switchSourceToTwitterAction(formData: FormData): Promise<void> {
+  const campaignId = String(formData.get("campaignId") || "");
+  const { campaign } = await ownedCampaignOrThrow(campaignId);
+  if (campaign.sourceType !== "manual" || !isTwitterConfigured()) return;
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { sourceType: "twitter" } });
   revalidatePath(`/campaigns/${campaignId}`);
 }
 

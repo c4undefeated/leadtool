@@ -7,8 +7,20 @@ export function isRedditConfigured(): boolean {
   return Boolean(process.env.REDDITAPIS_API_KEY);
 }
 
-export function defaultSourceType(): "reddit" | "manual" {
-  return isRedditConfigured() ? "reddit" : "manual";
+/** Same idea as isRedditConfigured, for TWITTER_API_KEY / TwitterAPIs. */
+export function isTwitterConfigured(): boolean {
+  return Boolean(process.env.TWITTER_API_KEY);
+}
+
+// Reddit was the first live source, so it wins if both happen to be
+// configured — preserves existing campaigns' behavior exactly. A new
+// campaign that specifically wants Twitter picks it explicitly at creation
+// (see NewCampaignForm); this default only covers the "just pick something
+// reasonable" case.
+export function defaultSourceType(): "reddit" | "twitter" | "manual" {
+  if (isRedditConfigured()) return "reddit";
+  if (isTwitterConfigured()) return "twitter";
+  return "manual";
 }
 
 export function isAiConfigured(): boolean {
