@@ -31,6 +31,17 @@ export const ACTION_LABELS: Record<string, string> = {
   none: "Don't engage",
 };
 
+export const INTENT_CATEGORY_LABELS: Record<string, string> = {
+  tool_request: "Tool request",
+  alternative_search: "Alternative search",
+  comparison: "Comparison",
+  hiring_outsourcing: "Hiring / outsourcing",
+  troubleshooting: "Troubleshooting",
+  pain_frustration: "Pain / frustration",
+  exploring_solutions: "Exploring solutions",
+  other: "Other",
+};
+
 export const SOURCE_LABELS: Record<string, string> = {
   reddit: "Reddit",
   twitter: "X/Twitter",

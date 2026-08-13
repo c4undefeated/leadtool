@@ -3,13 +3,14 @@
 import { useMemo, useState, useTransition } from "react";
 import { OpportunityRow } from "./OpportunityRow";
 import { bulkDismissAction } from "@/lib/actions/opportunities";
-import { sourceLabel } from "@/lib/format";
+import { sourceLabel, INTENT_CATEGORY_LABELS } from "@/lib/format";
 
 export type RowOpportunity = {
   id: string;
   matchScore: number;
   priorityTier: string;
   safetyLabel: string;
+  intentCategory: string | null;
   status: string;
   conversation: {
     title: string | null;
@@ -38,6 +39,7 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
   const [matchFilter, setMatchFilter] = useState<"all" | "high" | "potential" | "low">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "new" | "contacted" | "closed">("all");
   const [platformFilter, setPlatformFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"newest" | "match" | "oldest">("newest");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
@@ -48,12 +50,18 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
     [opportunities],
   );
 
+  const categories = useMemo(
+    () => Array.from(new Set(opportunities.map((o) => o.intentCategory).filter((c): c is string => Boolean(c)))),
+    [opportunities],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let result = opportunities.filter((o) => {
       if (matchFilter !== "all" && o.priorityTier !== matchFilter) return false;
       if (statusFilter !== "all" && STATUS_GROUP[o.status] !== statusFilter) return false;
       if (platformFilter !== "all" && o.conversation.source !== platformFilter) return false;
+      if (categoryFilter !== "all" && o.intentCategory !== categoryFilter) return false;
       if (q) {
         const haystack = `${o.conversation.title ?? ""} ${o.conversation.originalText}`.toLowerCase();
         if (!haystack.includes(q)) return false;
@@ -66,7 +74,7 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
       return b.conversation.postedAt.getTime() - a.conversation.postedAt.getTime();
     });
     return result;
-  }, [opportunities, search, matchFilter, statusFilter, platformFilter, sortBy]);
+  }, [opportunities, search, matchFilter, statusFilter, platformFilter, categoryFilter, sortBy]);
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -149,6 +157,20 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
             {platforms.map((p) => (
               <option key={p} value={p}>
                 {sourceLabel(p)}
+              </option>
+            ))}
+          </select>
+        )}
+        {categories.length > 0 && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs font-mono"
+          >
+            <option value="all">All intent types</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {INTENT_CATEGORY_LABELS[c] ?? c}
               </option>
             ))}
           </select>

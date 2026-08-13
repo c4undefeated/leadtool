@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS } from "@/lib/format";
+import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS } from "@/lib/format";
 import { EngagementPanel } from "@/components/EngagementPanel";
 import { StatusControl } from "@/components/StatusControl";
 
@@ -144,6 +144,11 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         <div className="flex flex-wrap gap-2 mb-4">
           <span className="pill pill-neutral">{STATUS_LABELS[opportunity.status]}</span>
           <span className="pill pill-neutral">{ACTION_LABELS[opportunity.recommendedAction]}</span>
+          {opportunity.intentCategory && (
+            <span className="pill pill-neutral">
+              {INTENT_CATEGORY_LABELS[opportunity.intentCategory] ?? opportunity.intentCategory}
+            </span>
+          )}
           {opportunity.engagementType && (
             <span className="pill pill-accent">Engaged via {opportunity.engagementType}</span>
           )}

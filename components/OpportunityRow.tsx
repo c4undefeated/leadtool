@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTransition } from "react";
-import { relativeTime, SAFETY_LABELS, STATUS_LABELS, sourceLabel } from "@/lib/format";
+import { relativeTime, SAFETY_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS, sourceLabel } from "@/lib/format";
 import { updateOpportunityStatusAction } from "@/lib/actions/opportunities";
 import type { RowOpportunity } from "./OpportunitiesExplorer";
 
@@ -43,6 +43,9 @@ export function OpportunityRow({
             Match {opportunity.matchScore}
           </span>
           <span className={`pill ${safety.className} shrink-0`}>{safety.text}</span>
+          {opportunity.intentCategory && (
+            <span className="pill pill-neutral shrink-0">{INTENT_CATEGORY_LABELS[opportunity.intentCategory] ?? opportunity.intentCategory}</span>
+          )}
           <span className="text-xs font-mono text-muted truncate">
             {opportunity.conversation.community ?? opportunity.conversation.source}
             {opportunity.conversation.authorRef ? ` · ${opportunity.conversation.authorRef}` : ""} ·{" "}
