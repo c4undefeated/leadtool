@@ -91,6 +91,40 @@ export const engagementResponseSchema: Schema = {
   required: ["strategy", "strategy_reason", "avoid_guidance", "comment_draft", "comment_why", "dm_draft", "dm_why"],
 };
 
+export const enrichmentResultSchema = z.object({
+  buyer_keywords: z.array(z.string()).max(15),
+  target_subreddits: z.array(z.string()).max(15),
+  excluded_terms: z.array(z.string()).max(15),
+});
+
+export type EnrichmentResult = z.infer<typeof enrichmentResultSchema>;
+
+/** Website → keyword/subreddit/exclusion suggestions for campaign setup. Suggestions only — never auto-saved. */
+export const enrichmentResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    buyer_keywords: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      maxItems: "15",
+      description: "Short phrases a real prospect would type when they have a live need this business could serve — not marketing language.",
+    },
+    target_subreddits: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      maxItems: "15",
+      description: "Plausible subreddit names (no r/ prefix) where this business's target customers would discuss this need. Unverified suggestions.",
+    },
+    excluded_terms: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      maxItems: "15",
+      description: "Terms likely to cause false positives — competitor names, job-seeking language, industry jargon used by professionals rather than customers.",
+    },
+  },
+  required: ["buyer_keywords", "target_subreddits", "excluded_terms"],
+};
+
 export function priorityTierFromMatchScore(matchScore: number): "high" | "potential" | "low" {
   if (matchScore >= 85) return "high";
   if (matchScore >= 65) return "potential";

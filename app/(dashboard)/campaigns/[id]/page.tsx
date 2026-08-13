@@ -13,6 +13,13 @@ import { isAiConfigured, isRedditConfigured } from "@/lib/sourceAvailability";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
+import { WebsiteEnrichmentPanel } from "@/components/WebsiteEnrichmentPanel";
+
+// A live scan can run several Gemini analysis calls (bounded-concurrency,
+// see lib/pipeline.ts) — the platform default execution limit is too short
+// for a first scan with many new posts. This is a safety margin on top of
+// the concurrency fix, not a substitute for it.
+export const maxDuration = 60;
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -95,6 +102,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           }
         />
       </section>
+
+      <WebsiteEnrichmentPanel campaignId={campaign.id} />
 
       <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">What Scout is looking for</h2>
