@@ -9,8 +9,59 @@ export type IngestResult = {
   conversationsIngested: number;
   opportunitiesCreated: number;
   skipped: number;
+  skippedJunk: number;
   errors: string[];
 };
+
+export type JunkCheck = { isJunk: boolean; reason?: string };
+
+const DELETED_MARKERS = new Set(["[deleted]", "[removed]", "[removed by moderator]"]);
+
+// Case-insensitive substring matches — deliberately plain phrases, not
+// regex, so this stays easy to audit and extend without surprises.
+const SPAM_PATTERNS = ["link in bio", "use promo code", "50% off", "dm for rates", "whatsapp:"];
+
+const BOT_MARKERS = ["i am a bot, and this action was performed automatically"];
+
+const MIN_WORD_COUNT = 8;
+
+/**
+ * Cheap, pre-Gemini heuristic filter — protects API spend/latency against
+ * content that's structurally never going to be a genuine opportunity
+ * (deleted, near-empty, or obvious spam/bot boilerplate). Deliberately
+ * narrow: this only drops posts no real reading of the text could turn
+ * into an opportunity. Anything even slightly ambiguous still goes to
+ * Gemini — the zero-result-integrity judgment call stays with the model,
+ * not a keyword list.
+ */
+export function isJunkPost(conversation: NormalizedConversation): JunkCheck {
+  const title = (conversation.title ?? "").trim();
+  const body = (conversation.originalText ?? "").trim();
+
+  if (DELETED_MARKERS.has(title.toLowerCase()) || DELETED_MARKERS.has(body.toLowerCase())) {
+    return { isJunk: true, reason: "deleted_or_removed" };
+  }
+
+  const combined = `${title} ${body}`.trim();
+  const wordCount = combined.length === 0 ? 0 : combined.split(/\s+/).length;
+  if (wordCount < MIN_WORD_COUNT) {
+    return { isJunk: true, reason: `too_short (${wordCount} word${wordCount === 1 ? "" : "s"})` };
+  }
+
+  const lower = combined.toLowerCase();
+  for (const pattern of SPAM_PATTERNS) {
+    if (lower.includes(pattern)) {
+      return { isJunk: true, reason: `spam_pattern: "${pattern}"` };
+    }
+  }
+  for (const marker of BOT_MARKERS) {
+    if (lower.includes(marker)) {
+      return { isJunk: true, reason: "bot_meta_marker" };
+    }
+  }
+
+  return { isJunk: false };
+}
 
 /** Runs `fn` over `items` with at most `concurrency` in flight at once. */
 export async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
@@ -110,7 +161,13 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     include: { keywords: true, company: { include: { offer: true } } },
   });
 
-  const result: IngestResult = { conversationsIngested: 0, opportunitiesCreated: 0, skipped: 0, errors: [] };
+  const result: IngestResult = {
+    conversationsIngested: 0,
+    opportunitiesCreated: 0,
+    skipped: 0,
+    skippedJunk: 0,
+    errors: [],
+  };
 
   if (campaign.sourceType === "manual") {
     result.errors.push("This campaign's source is manual — import conversations directly instead of scanning.");
@@ -155,6 +212,9 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   await prisma.campaign.update({ where: { id: campaign.id }, data: { lastScanAt: new Date() } });
 
   // Ingest first — cheap, just dedup lookups + inserts, fine to do sequentially.
+  // The junk filter runs here too, in memory, before anything reaches the
+  // Gemini queue below — it still gets stored (so dedup keeps working next
+  // scan and the count stays honest), it just never gets analyzed.
   const newConversationIds: string[] = [];
   for (const nc of conversations) {
     try {
@@ -164,6 +224,13 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
         continue;
       }
       result.conversationsIngested += 1;
+
+      const junk = isJunkPost(nc);
+      if (junk.isJunk) {
+        result.skippedJunk += 1;
+        continue;
+      }
+
       newConversationIds.push(conversation.id);
     } catch (err) {
       result.errors.push(err instanceof Error ? err.message : "Unknown error while ingesting a conversation.");
