@@ -14,6 +14,7 @@ import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
 import { WebsiteEnrichmentPanel } from "@/components/WebsiteEnrichmentPanel";
+import { LeadRecencySelector } from "@/components/LeadRecencySelector";
 
 // A live scan can run several Gemini analysis calls (bounded-concurrency,
 // see lib/pipeline.ts) — the platform default execution limit is too short
@@ -90,17 +91,28 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </div>
         )}
         <p className="text-sm text-muted mb-3">{health.message}</p>
-        <RunScanButton
-          campaignId={campaign.id}
-          disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
-          disabledReason={
-            campaign.sourceType === "manual"
-              ? "This campaign's source is manual — use the import form below instead."
-              : health.status !== "ok"
-                ? health.message
-                : undefined
-          }
-        />
+        <div className="flex flex-wrap items-center gap-4 mb-3">
+          <RunScanButton
+            campaignId={campaign.id}
+            disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
+            disabledReason={
+              campaign.sourceType === "manual"
+                ? "This campaign's source is manual — use the import form below instead."
+                : health.status !== "ok"
+                  ? health.message
+                  : undefined
+            }
+          />
+          {campaign.sourceType !== "manual" && (
+            <LeadRecencySelector campaignId={campaign.id} value={campaign.maxLeadAgeHours} />
+          )}
+        </div>
+        {campaign.sourceType !== "manual" && (
+          <p className="text-xs text-muted">
+            Posts older than this are never surfaced, even if they'd otherwise match — recency is enforced
+            against each post's real timestamp, not just requested from Redditapis.
+          </p>
+        )}
       </section>
 
       <WebsiteEnrichmentPanel campaignId={campaign.id} />

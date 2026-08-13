@@ -56,6 +56,15 @@ provider's API surface otherwise exposes:
   as always (see "Mark Contacted" below).
 - No customer-facing Reddit OAuth exists or is planned.
 
+**Lead recency.** Each campaign has a `maxLeadAgeHours` setting (12 / 24 /
+48, defaults to 24 — selector on the campaign page, next to "Run scan").
+Redditapis's own time-window param (`t`) is coarse (hour/day/week/month/
+year/all) and, per its docs, mainly affects top/controversial sort — not
+something precise enough to trust for a 12h/24h/48h cutoff. So the adapter
+requests a superset window from the provider, then enforces the real cutoff
+itself against each post's actual `created_utc` before anything gets
+ingested or analyzed (`lib/sources/redditApisAdapter.ts`).
+
 Everything provider-specific is isolated behind `RedditSourceAdapter`
 (`lib/sources/redditApisAdapter.ts`) and a single client module
 (`lib/providers/redditapis/client.ts`) — nothing else in the codebase
