@@ -70,7 +70,17 @@ model Campaign {
   keywords      Keyword[]
   conversations Conversation[]
   createdAt     DateTime       @default(now())
-  lastScanAt    DateTime? // set whenever a scan actually runs (manual or, later, scheduled) — never fabricated
+  lastScanAt    DateTime? // set whenever a scan actually runs (manual or scheduled) — never fabricated
+
+  // Breakdown of the most recent scan (manual click or cron), so the UI can
+  // show real numbers even for scans nobody was watching happen. Null until
+  // the first scan ever completes; all set together, in one write, at the
+  // end of runScanForCampaign.
+  lastScanIngested          Int?
+  lastScanSkippedDuplicates Int?
+  lastScanSkippedJunk       Int?
+  lastScanOpportunities     Int?
+  lastScanCacheHit          Boolean?
 }
 
 model Keyword {
