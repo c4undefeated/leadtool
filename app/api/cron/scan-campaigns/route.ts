@@ -30,6 +30,8 @@ export async function GET(request: Request) {
     name: string;
     ingested: number;
     skippedJunk: number;
+    skippedDuplicates: number;
+    cacheHit: boolean | null;
     opportunities: number;
     errors: string[];
   }[] = [];
@@ -42,6 +44,8 @@ export async function GET(request: Request) {
         name: campaign.name,
         ingested: result.conversationsIngested,
         skippedJunk: result.skippedJunk,
+        skippedDuplicates: result.skippedDuplicates,
+        cacheHit: result.cacheHit,
         opportunities: result.opportunitiesCreated,
         errors: result.errors,
       });
@@ -51,6 +55,8 @@ export async function GET(request: Request) {
         name: campaign.name,
         ingested: 0,
         skippedJunk: 0,
+        skippedDuplicates: 0,
+        cacheHit: null,
         opportunities: 0,
         errors: [err instanceof Error ? err.message : "Unknown error."],
       });

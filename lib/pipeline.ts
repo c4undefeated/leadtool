@@ -3,13 +3,15 @@ import { getAdapter } from "@/lib/sources";
 import type { NormalizedConversation } from "@/lib/sources/types";
 import { analyzeConversation, ANALYSIS_PROMPT_VERSION } from "@/lib/ai/analysis";
 import { priorityTierFromMatchScore } from "@/lib/ai/schemas";
-import type { Offer } from "@prisma/client";
+import { Prisma, type Offer } from "@prisma/client";
 
 export type IngestResult = {
   conversationsIngested: number;
   opportunitiesCreated: number;
-  skipped: number;
+  skippedDuplicates: number;
   skippedJunk: number;
+  /** Whether the provider search itself was served from cache — null when no provider call happens (manual source, or the search failed before recording). */
+  cacheHit: boolean | null;
   errors: string[];
 };
 
@@ -75,7 +77,17 @@ export async function mapWithConcurrency<T>(items: T[], concurrency: number, fn:
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
 }
 
-/** Inserts a normalized conversation for a campaign, deduping on (source, sourceId). */
+/**
+ * Inserts a normalized conversation for a campaign, deduping on
+ * (source, sourceId). The check-then-insert below isn't atomic, so a
+ * second scan racing this one (a different campaign surfacing the same
+ * post, or the daily cron overlapping a manual click) can pass the
+ * findUnique check before either has inserted — the loser then hits the
+ * real database-level (source, sourceId) unique constraint on create().
+ * That's a benign duplicate, not a real error: catch it specifically
+ * (Prisma P2002) and resolve to whichever row actually won the race,
+ * instead of letting it surface as an unhandled ingestion error.
+ */
 async function ingestOne(campaignId: string, nc: NormalizedConversation) {
   if (nc.sourceId) {
     const existing = await prisma.conversation.findUnique({
@@ -84,21 +96,31 @@ async function ingestOne(campaignId: string, nc: NormalizedConversation) {
     if (existing) return { conversation: existing, isNew: false };
   }
 
-  const conversation = await prisma.conversation.create({
-    data: {
-      campaignId,
-      source: nc.source,
-      sourceId: nc.sourceId,
-      authorRef: nc.authorRef,
-      title: nc.title,
-      originalText: nc.originalText,
-      url: nc.url,
-      community: nc.community,
-      postedAt: nc.postedAt,
-      metadata: nc.metadata ? JSON.stringify(nc.metadata) : null,
-    },
-  });
-  return { conversation, isNew: true };
+  try {
+    const conversation = await prisma.conversation.create({
+      data: {
+        campaignId,
+        source: nc.source,
+        sourceId: nc.sourceId,
+        authorRef: nc.authorRef,
+        title: nc.title,
+        originalText: nc.originalText,
+        url: nc.url,
+        community: nc.community,
+        postedAt: nc.postedAt,
+        metadata: nc.metadata ? JSON.stringify(nc.metadata) : null,
+      },
+    });
+    return { conversation, isNew: true };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002" && nc.sourceId) {
+      const existing = await prisma.conversation.findUnique({
+        where: { source_sourceId: { source: nc.source, sourceId: nc.sourceId } },
+      });
+      if (existing) return { conversation: existing, isNew: false };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -164,8 +186,9 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   const result: IngestResult = {
     conversationsIngested: 0,
     opportunitiesCreated: 0,
-    skipped: 0,
+    skippedDuplicates: 0,
     skippedJunk: 0,
+    cacheHit: null,
     errors: [],
   };
 
@@ -202,6 +225,25 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       campaignId: campaign.id,
       companyId: campaign.companyId,
     });
+
+    // The cache check itself already happened inside the provider's own
+    // service layer (lib/providers/{redditapis,twitterapis}/service.ts) —
+    // every call there goes cache → budget → network → ledger, so a
+    // request this campaign already made within the cache TTL is served
+    // from ProviderRequestCache and never reaches the network, with
+    // cacheHit:true written to the exact same ProviderUsageEvent row a
+    // live call would produce. That's deliberately not duplicated here
+    // with a second cache keyed on campaignId+keywords+communities+
+    // maxAgeHours — those fields are exactly what the adapter derives the
+    // real request params from, so a second cache would just be checking
+    // the same thing through a different, driftable key. What's missing
+    // is visibility, not the check itself — surface it by reading back
+    // the ledger row the call (cached or not) just wrote.
+    const lastUsage = await prisma.providerUsageEvent.findFirst({
+      where: { campaignId: campaign.id },
+      orderBy: { createdAt: "desc" },
+    });
+    result.cacheHit = lastUsage?.cacheHit ?? null;
   } catch (err) {
     result.errors.push(err instanceof Error ? err.message : "Unknown ingestion error.");
     return result;
@@ -220,7 +262,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     try {
       const { conversation, isNew } = await ingestOne(campaignId, nc);
       if (!isNew) {
-        result.skipped += 1;
+        result.skippedDuplicates += 1;
         continue;
       }
       result.conversationsIngested += 1;
