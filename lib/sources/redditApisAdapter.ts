@@ -70,7 +70,7 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // precision exists — Redditapis doesn't offer it, so we don't pretend
     // to pass it through.
     const maxAgeHours = params.maxAgeHours ?? 24;
-    const t = maxAgeHours <= 24 ? "day" : "week";
+    const t = maxAgeHours <= 24 ? "day" : maxAgeHours <= 168 ? "week" : "month";
 
     const context = { campaignId: params.campaignId, companyId: params.companyId };
     const response = await redditapis.searchRedditapis({ q: query, subreddit, sort, t, limit }, context);

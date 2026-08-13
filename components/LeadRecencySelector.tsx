@@ -7,6 +7,8 @@ const OPTIONS = [
   [12, "12h"],
   [24, "24h (default)"],
   [48, "48h"],
+  [168, "1 week"],
+  [720, "1 month"],
 ] as const;
 
 export function LeadRecencySelector({ campaignId, value }: { campaignId: string; value: number }) {
