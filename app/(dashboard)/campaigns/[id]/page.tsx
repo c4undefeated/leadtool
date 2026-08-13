@@ -124,18 +124,31 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           ))}
           {keywords.length === 0 && <p className="text-sm text-muted">No keywords yet.</p>}
         </div>
-        <form action={addKeywordAction} className="flex gap-2 mb-4">
-          <input type="hidden" name="campaignId" value={campaign.id} />
-          <input type="hidden" name="type" value="keyword" />
-          <input
-            name="term"
-            placeholder="Add a keyword or phrase"
-            className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
-          />
-          <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
-            Add
-          </button>
-        </form>
+        {/*
+          Manual free-text keyword entry — disabled per product direction:
+          keywords should come from Scout analyzing the business's own site
+          (see the "Analyze website for auto-keywords" panel above), not
+          hand-typed. Intentionally left in place, commented out, rather
+          than deleted — restore by uncommenting if manual entry needs to
+          come back.
+
+          <form action={addKeywordAction} className="flex gap-2 mb-4">
+            <input type="hidden" name="campaignId" value={campaign.id} />
+            <input type="hidden" name="type" value="keyword" />
+            <input
+              name="term"
+              placeholder="Add a keyword or phrase"
+              className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
+            />
+            <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
+              Add
+            </button>
+          </form>
+        */}
+        <p className="text-xs text-muted mb-4">
+          Keywords come from analyzing your website, above — Scout picks them from your own copy rather than
+          you typing them in. You can still remove any that don't fit.
+        </p>
 
         {campaign.sourceType === "reddit" && (
           <>
