@@ -104,6 +104,7 @@ export function EngagementPanel({
               label="Generate DM — draft"
               draft={rec.dmDraft}
               openUrl={dmComposeUrl ?? originalUrl}
+              dmComposeBaseUrl={dmComposeUrl}
               openLabel={dmComposeUrl ? "Open DM to paste it" : "Open post (no DM link available)"}
               quickActionLabel={dmComposeUrl ? "Copy Draft & Open DM" : "Copy Draft & Open Thread"}
             />
@@ -125,12 +126,21 @@ function DraftBox({
   label,
   draft,
   openUrl,
+  dmComposeBaseUrl,
   openLabel,
   quickActionLabel,
 }: {
   label: string;
   draft: NonNullable<Draft>;
   openUrl: string;
+  /**
+   * When set, this draft opens Reddit's own DM compose page — the live edited text gets appended
+   * as a `message` query param so Reddit's compose box arrives pre-filled instead of empty. This
+   * only pre-fills a text box on Reddit's own site; the human still has to press Send there
+   * themselves, same as the plain-copy path. If Reddit ever stops honoring the param, this
+   * degrades to exactly the old behavior (an empty compose box the user pastes into).
+   */
+  dmComposeBaseUrl?: string | null;
   openLabel: string;
   /** Label for the combined one-click copy+open button — kept short and distinct from openLabel's more verbose phrasing. */
   quickActionLabel: string;
@@ -138,6 +148,7 @@ function DraftBox({
   const [text, setText] = useState(draft.text);
   const [copied, setCopied] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
+  const resolvedOpenUrl = dmComposeBaseUrl ? `${dmComposeBaseUrl}&message=${encodeURIComponent(text)}` : openUrl;
 
   return (
     <div className="mb-4 last:mb-0">
@@ -157,7 +168,7 @@ function DraftBox({
             // treat a call made after an awaited clipboard write as a popup and
             // block it. writeText() is fire-and-forget here, same as plain Copy below.
             navigator.clipboard.writeText(text);
-            window.open(openUrl, "_blank", "noopener,noreferrer");
+            window.open(resolvedOpenUrl, "_blank", "noopener,noreferrer");
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           }}
@@ -177,7 +188,7 @@ function DraftBox({
           {copied ? "Copied" : "Copy only"}
         </button>
         <a
-          href={openUrl}
+          href={resolvedOpenUrl}
           target="_blank"
           rel="noreferrer"
           className="text-xs font-mono rounded-md border border-line px-3 py-1.5"
