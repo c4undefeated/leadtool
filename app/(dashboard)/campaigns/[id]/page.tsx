@@ -59,8 +59,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             {opportunityCount === 1 ? "y" : "ies"}
           </p>
           <p className="text-xs font-mono text-muted mt-1">
-            Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never — scans run on demand, not on a schedule"}
+            Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never yet"}
           </p>
+          {campaign.status === "active" && campaign.sourceType !== "manual" && (
+            <p className="text-xs font-mono text-muted mt-1">
+              Auto-scanned once daily (in addition to any manual runs) while Active — timing isn't exact, see README.
+            </p>
+          )}
         </div>
         <form action={toggleCampaignStatusAction}>
           <input type="hidden" name="campaignId" value={campaign.id} />

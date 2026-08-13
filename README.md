@@ -23,6 +23,7 @@ never pretending to have data or results it doesn't have.
 | Reddit adapter | Code complete, **inert without `REDDITAPIS_API_KEY`**, read-only |
 | X/Twitter adapter | Code complete, **inert without `TWITTER_API_KEY`**, read-only |
 | Website enrichment (auto-suggest keywords/subreddits/exclusions from a URL) | Fully working, requires `GEMINI_API_KEY` — suggestions only, never auto-saved |
+| Scheduled scanning | Live — once/day via Vercel Cron (Hobby-plan ceiling), **requires `CRON_SECRET`** set in Vercel; manual "Run scan" still works independently |
 | Database | **Live** — Supabase Postgres project `intentscout` (`dalywukhftxlopskrtaq`, us-east-1) |
 | Vercel deployment | **Live** — git-integrated, deploys on push to `main` |
 
@@ -142,9 +143,34 @@ Nothing in the product fabricates data to paper over any of this. If
 `GEMINI_API_KEY` is missing, analysis fails with a clear, visible error
 instead of returning fake scores. If a campaign's source isn't configured,
 "Run scan" is disabled with an explanation instead of silently doing
-nothing. If a campaign has never been scanned, the UI says "never — scans
-run on demand, not on a schedule" rather than inventing a next-scan time;
-there is no scheduler built yet.
+nothing. If a campaign has never been scanned, the UI says "never yet"
+rather than inventing a next-scan time.
+
+### Scheduled scanning
+
+Active, non-manual campaigns are also scanned automatically once a day —
+`app/api/cron/scan-campaigns/route.ts`, wired up via `vercel.json`. This
+runs on the Vercel Hobby plan's cron tier deliberately, which is real and
+worth knowing about, not glossed over:
+
+- **Once per day, maximum.** Hobby-plan cron jobs cannot run more
+  frequently — Vercel rejects a more-frequent schedule at deploy time.
+  Upgrading to Pro is what unlocks per-minute schedules.
+- **Imprecise timing.** Vercel documents Hobby cron firing within the
+  scheduled hour, not at an exact minute — the UI says "auto-scanned once
+  daily," not a specific time, because a specific time isn't actually true.
+- **Same one-call-per-campaign, same budget/health guards as a manual
+  click.** The cron doesn't scan harder or loop more — it calls the exact
+  same `runScanForCampaign()` a manual "Run scan" click does, for every
+  active campaign, once a day. It removes the "someone has to remember to
+  click it" step; it does not increase how much a single scan finds. If
+  you're comparing lead volume against a competitor that's clearly polling
+  continuously, this is the ceiling that comparison runs into on a free
+  plan — the ceiling is provider-call cadence, not this app's logic.
+- Protected by `CRON_SECRET` — Vercel sends it as a Bearer token
+  automatically once the env var is set; the route 401s without a match,
+  since it's a real POST-able endpoint that would otherwise let anyone
+  trigger paid provider calls.
 
 ## Infrastructure
 
@@ -187,6 +213,9 @@ Env vars — see `.env.example` for the full list and what each unlocks:
 - `TWITTER_API_KEY` — optional, only needed to enable live X/Twitter
   ingestion via TwitterAPIs (see above). Server-side only, read-only.
 - `TWITTER_MAX_TEST_SPEND_USD` — optional, defaults to `0.50`.
+- `CRON_SECRET` — required for scheduled scanning to run (see above);
+  without it the cron endpoint just 401s and manual "Run scan" is
+  unaffected either way.
 
 This sandbox specifically cannot make raw Postgres TCP connections
 (outbound is HTTPS-only here) — local `prisma migrate`/`next dev` against
@@ -264,7 +293,9 @@ No automated posting or DMing anywhere — every draft is copy/paste,
 opened against the original conversation, sent by the human, then
 recorded via "Mark Contacted." No generic CRM, no mobile app, no
 team/agency seats, no conversational Scout chat interface, no automatic
-outcome-based re-scoring, no scan scheduler. Outcome data (won/lost,
-estimated value, contacted-at, what was actually sent) is captured on
-every `Opportunity` from day one so a future version can use it — V1
-does not pretend to learn from it yet.
+outcome-based re-scoring. (Scheduled scanning does exist — see above —
+but only once/day on the current Vercel plan; there's still no
+sub-daily/continuous polling.) Outcome data (won/lost, estimated value,
+contacted-at, what was actually sent) is captured on every `Opportunity`
+from day one so a future version can use it — V1 does not pretend to
+learn from it yet.

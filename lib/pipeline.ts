@@ -13,7 +13,7 @@ export type IngestResult = {
 };
 
 /** Runs `fn` over `items` with at most `concurrency` in flight at once. */
-async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+export async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   async function worker() {
     while (next < items.length) {
