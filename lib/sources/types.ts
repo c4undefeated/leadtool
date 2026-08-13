@@ -32,6 +32,8 @@ export type RateLimitStatus = {
 
 export type SearchParams = {
   keywords: string[];
+  /** Short, broad topic nouns (e.g. "personal trainer") — optional. Adapters that support boolean queries AND these against a fixed intent-word list to widen recall beyond exact keyword phrases; adapters without that notion ignore this. */
+  topics: string[];
   communities: string[]; // e.g. subreddit names; adapter interprets meaning
   limit?: number;
   /** Only surface results posted within this many hours. Adapters without a real notion of "posted at" ignore this. */

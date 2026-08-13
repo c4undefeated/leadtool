@@ -229,6 +229,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   }
 
   const keywords = campaign.keywords.filter((k) => k.type === "keyword").map((k) => k.term);
+  const topics = campaign.keywords.filter((k) => k.type === "topic").map((k) => k.term);
   const communities = campaign.keywords
     .filter((k) => k.type === "subreddit")
     .map((k) => k.term);
@@ -237,12 +238,14 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   try {
     conversations = await adapter.search({
       keywords,
+      topics,
       communities,
-      limit: 25,
+      limit: 100,
       maxAgeHours: campaign.maxLeadAgeHours,
       campaignId: campaign.id,
       companyId: campaign.companyId,
     });
+    console.log(`[runScanForCampaign] campaign ${campaign.id}: ${conversations.length} raw conversation(s) to ingest`);
 
     // The cache check itself already happened inside the provider's own
     // service layer (lib/providers/{redditapis,twitterapis}/service.ts) —
@@ -298,11 +301,12 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   }
 
   // Analysis is the slow part — one Gemini call per conversation. Running
-  // several in flight at once keeps a scan with many new posts (up to 25)
-  // from running long enough to hit the serverless function's execution
-  // limit, which previously showed up as the whole scan failing partway
-  // with no useful error, just a dead connection.
-  const ANALYSIS_CONCURRENCY = 5;
+  // several in flight at once keeps a scan with many new posts (up to 100,
+  // since the search fetch limit was raised alongside this) from running
+  // long enough to hit the serverless function's execution limit, which
+  // previously showed up as the whole scan failing partway with no useful
+  // error, just a dead connection.
+  const ANALYSIS_CONCURRENCY = 10;
   await mapWithConcurrency(newConversationIds, ANALYSIS_CONCURRENCY, async (conversationId) => {
     try {
       const opportunity = await runAnalysisForConversation(conversationId, offer);
@@ -313,6 +317,10 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       result.errors.push(message);
     }
   });
+
+  console.log(
+    `[runScanForCampaign] campaign ${campaign.id} summary: ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
+  );
 
   // A scan genuinely ran at this point, regardless of how many opportunities it
   // finds — record that honestly, along with the real breakdown, in one write.

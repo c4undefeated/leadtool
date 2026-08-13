@@ -68,6 +68,26 @@ requests a superset window from the provider, then enforces the real cutoff
 itself against each post's actual `created_utc` before anything gets
 ingested or analyzed (`lib/sources/redditApisAdapter.ts`).
 
+**Search query strategy.** Every configured keyword phrase is quoted and
+OR'd together (`lib/sources/redditApisAdapter.ts`'s `buildQuery`) — verified
+live that unquoted phrases return nothing, and that Redditapis parses
+quoted-phrase boolean OR/AND correctly, including nested groups. Search
+always sorts `new` (verified live that unscoped `relevance` sort surfaces
+old, off-topic archive content — a multi-year-old post outranked same-day
+ones). A campaign can optionally add short **topic terms** (`Keyword.type
+= "topic"`, e.g. "personal trainer" rather than a full sentence) — these
+get ANDed against a fixed, vertical-agnostic buying-intent word list
+(`INTENT_WORDS`) to widen recall beyond exact phrase matches, verified live
+to go from 0 matches (a real campaign's 20 full-sentence keywords, OR'd) to
+100 (a 3-4 term topic group ANDed with intent words) in the same one-week
+window. Topic terms are additive, not a replacement — the query combines
+both strategies in one call, and a campaign with no topic terms configured
+falls back exactly to keyword-only behavior. This broader net will surface
+more noise (crossposted ads, off-target matches); the existing junk filter
+and Stage-1 AI analysis are what narrow it back down, same as always —
+search casting a wide net doesn't mean widening what counts as a real
+opportunity.
+
 Everything provider-specific is isolated behind `RedditSourceAdapter`
 (`lib/sources/redditApisAdapter.ts`) and a single client module
 (`lib/providers/redditapis/client.ts`) — nothing else in the codebase
