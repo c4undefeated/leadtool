@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { isRedditConfigured, isTwitterConfigured } from "@/lib/sourceAvailability";
 import { NewCampaignForm } from "@/components/NewCampaignForm";
 
 export default async function CampaignsPage() {
@@ -22,7 +23,7 @@ export default async function CampaignsPage() {
 
       <div className="rounded-lg border border-line bg-surface p-5 max-w-md">
         <h2 className="font-medium text-sm mb-3">New campaign</h2>
-        <NewCampaignForm />
+        <NewCampaignForm showSourcePicker={isRedditConfigured() && isTwitterConfigured()} />
       </div>
 
       <div className="flex flex-col gap-3">

@@ -41,7 +41,7 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
             required
             type="url"
             className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
-            placeholder="https://reddit.com/..."
+            placeholder="https://reddit.com/... or https://x.com/..."
           />
         </label>
         <label className="text-sm text-muted">
@@ -49,7 +49,7 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
           <input
             name="community"
             className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
-            placeholder="e.g. r/Fitness"
+            placeholder="e.g. r/Fitness (leave blank for X/other sources)"
           />
         </label>
       </div>

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-const PROVIDER = "redditapis";
+const PROVIDER = "twitterapis";
 const DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 minutes — a pure spend guard against accidental duplicate calls
 
 /** Deterministic key for a given request so identical requests within the TTL window share one paid call. */

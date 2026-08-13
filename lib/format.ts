@@ -31,6 +31,16 @@ export const ACTION_LABELS: Record<string, string> = {
   none: "Don't engage",
 };
 
+export const SOURCE_LABELS: Record<string, string> = {
+  reddit: "Reddit",
+  twitter: "X/Twitter",
+  manual: "Manual",
+};
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   new: "New",
   reviewed: "Reviewed",

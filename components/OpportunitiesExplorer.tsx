@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { OpportunityRow } from "./OpportunityRow";
 import { bulkDismissAction } from "@/lib/actions/opportunities";
+import { sourceLabel } from "@/lib/format";
 
 export type RowOpportunity = {
   id: string;
@@ -147,7 +148,7 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
             <option value="all">All platforms</option>
             {platforms.map((p) => (
               <option key={p} value={p}>
-                {p === "reddit" ? "Reddit" : "Manual"}
+                {sourceLabel(p)}
               </option>
             ))}
           </select>
