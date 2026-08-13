@@ -47,6 +47,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
   const keywords = campaign.keywords.filter((k) => k.type === "keyword");
   const communities = campaign.keywords.filter((k) => k.type === "subreddit");
+  const topics = campaign.keywords.filter((k) => k.type === "topic");
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -135,6 +136,35 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             Add
           </button>
         </form>
+
+        {campaign.sourceType === "reddit" && (
+          <>
+            <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Topic terms</p>
+            <p className="text-xs text-muted mb-2">
+              Short, broad terms (e.g. "personal trainer", not "looking for a personal trainer near me") —
+              combined with common buying-intent words to cast a wider net across all of Reddit than your
+              exact keyword phrases alone. Optional; leave empty to search on keywords only.
+            </p>
+            <div className="flex flex-col gap-2 mb-4">
+              {topics.map((k) => (
+                <KeywordRow key={k.id} keyword={k} campaignId={campaign.id} />
+              ))}
+              {topics.length === 0 && <p className="text-sm text-muted">No topic terms yet.</p>}
+            </div>
+            <form action={addKeywordAction} className="flex gap-2 mb-4">
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <input type="hidden" name="type" value="topic" />
+              <input
+                name="term"
+                placeholder="e.g. personal trainer"
+                className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
+              />
+              <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
+                Add
+              </button>
+            </form>
+          </>
+        )}
 
         {campaign.sourceType !== "twitter" && (
           <>

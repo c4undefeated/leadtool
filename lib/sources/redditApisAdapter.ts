@@ -43,7 +43,7 @@ export class RedditApisSourceAdapter implements SourceAdapter {
   }
 
   async search(params: SearchParams): Promise<NormalizedConversation[]> {
-    const query = buildQuery(params.keywords);
+    const query = buildQuery(params.keywords, params.topics);
     if (!query) return [];
 
     const limit = Math.min(params.limit ?? 25, 100);
@@ -53,13 +53,15 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // community; zero or multiple communities fall back to an unscoped
     // global search rather than looping per-subreddit.
     const subreddit = params.communities.length === 1 ? params.communities[0] : undefined;
-    // Scoped to one community: sort by newest, like watching a live feed of
-    // a place you already know is relevant. Unscoped (global) search sorts
-    // by Reddit's own relevance ranking instead — "newest across all of
-    // Reddit" for a common phrase just surfaces whatever unrelated
-    // high-traffic community used those words most recently, drowning out
-    // a smaller target audience entirely.
-    const sort = subreddit ? "new" : "relevance";
+    // Always newest-first. This used to be "relevance" when unscoped, on
+    // the theory that "newest across all of Reddit" for a common phrase
+    // would get drowned out by unrelated high-traffic communities. Verified
+    // live that the opposite is true in practice: an unscoped relevance
+    // query returned a post from 2015, while an unscoped sort=new query
+    // with the same style of terms returned 100 genuinely fresh posts
+    // spanning dozens of subreddits (including small local ones) — exactly
+    // the "across all subreddits" coverage this adapter is for.
+    const sort = "new";
 
     // Redditapis's own time-window param only takes coarse buckets (hour/
     // day/week/month/year/all) and — per its docs — mainly affects
@@ -78,38 +80,67 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
     const recentPosts = response.posts.filter((post) => post.created_utc * 1000 >= cutoff);
 
+    // Top-of-funnel visibility: how much the provider actually returned
+    // before our own recency cutoff trims it, so a "0 ingested" result
+    // downstream can be told apart from "the provider itself found
+    // nothing" vs. "it found things, they just weren't recent enough."
+    console.log(
+      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: query="${query}" subreddit=${subreddit ?? "(all)"} -> ${response.posts.length} raw post(s) from Redditapis, ${recentPosts.length} within the ${maxAgeHours}h window`,
+    );
+
     return recentPosts.map(normalizePost);
   }
 }
 
-// Every production query we've sent with 15+ unquoted keyword phrases
-// joined by " OR " has come back with a literal empty `{"posts":[]}` from
-// Redditapis, including subreddit-scoped sort=new searches against very
-// active communities (r/fitness, r/personaltraining) where an empty
-// result isn't plausible if the query were actually being parsed as a
-// boolean OR of phrases. A shorter, unquoted query did return a real
-// match once. Two changes address the likely cause: quoting each phrase
-// (the standard way to ask a search backend to match it as one unit
-// instead of ANDing/literalizing the raw words), and capping total query
-// length so a long keyword list can't silently produce something the
-// provider can't parse. This has not been verified against a live call
-// from this environment — it's a diagnosis from stored request/response
-// pairs, not a confirmed fix; watch the next real scan's ingested count.
-const MAX_QUERY_LENGTH = 256;
+// Generic, vertical-agnostic buying-intent vocabulary. This is NOT derived
+// from any campaign's configured keywords — it's a fixed list ANDed against
+// a campaign's short topic terms to broaden search beyond requiring one of
+// the campaign's exact, often long, keyword phrases to appear verbatim.
+// Verified live against the real endpoint: a 20-phrase exact "OR" query
+// (all of a real campaign's configured keywords, quoted) returned zero
+// matches in a one-week window; a 4-topic-term query ANDed against a subset
+// of these intent words, same window, returned 100 matches spanning dozens
+// of subreddits. Long, specific sentences are rare in real posts; short
+// nouns + common intent words are not.
+const INTENT_WORDS = ["looking", "need", "recommend", "recommendation", "recommendations", "suggest", "suggestions", "advice", "hire", "considering", "want"];
 
-function buildQuery(keywords: string[]): string {
+// Length itself isn't the real constraint — a 609-character all-quoted
+// query parsed and returned HTTP 200 in live testing — but a generous cap
+// still guards against a pathological case (e.g. a campaign with dozens of
+// keywords) producing something unpredictable.
+const MAX_PHRASE_GROUP_LENGTH = 400;
+
+function buildPhraseGroup(phrases: string[], maxLength: number): string {
   const parts: string[] = [];
   let length = 0;
-  for (const keyword of keywords) {
-    const trimmed = keyword.trim();
+  for (const phrase of phrases) {
+    const trimmed = phrase.trim();
     if (!trimmed) continue;
-    const phrase = `"${trimmed.replace(/"/g, "")}"`;
-    const addition = (parts.length === 0 ? "" : " OR ") + phrase;
-    if (length + addition.length > MAX_QUERY_LENGTH) break;
-    parts.push(phrase);
+    const quoted = `"${trimmed.replace(/"/g, "")}"`;
+    const addition = (parts.length === 0 ? "" : " OR ") + quoted;
+    if (length + addition.length > maxLength) break;
+    parts.push(quoted);
     length += addition.length;
   }
   return parts.join(" OR ");
+}
+
+/**
+ * Combines two independent query strategies into one call (still exactly
+ * one Redditapis request per scan): a broad group — short campaign-defined
+ * topic terms ANDed against a fixed intent-word list, for wide recall
+ * across all of Reddit — and a precise group — the campaign's own full
+ * keyword phrases, quoted and OR'd, for exact matches. Either group can be
+ * empty (e.g. a campaign with no topic terms configured yet falls back to
+ * exactly the precise-only behavior this adapter always had).
+ */
+function buildQuery(keywords: string[], topics: string[]): string {
+  const topicGroup = buildPhraseGroup(topics, MAX_PHRASE_GROUP_LENGTH);
+  const broad = topicGroup ? `(${topicGroup}) AND (${INTENT_WORDS.join(" OR ")})` : "";
+  const precise = buildPhraseGroup(keywords, MAX_PHRASE_GROUP_LENGTH);
+
+  if (broad && precise) return `(${broad}) OR (${precise})`;
+  return broad || precise;
 }
 
 function normalizePost(post: RedditapisPost): NormalizedConversation {
