@@ -96,6 +96,7 @@ export function EngagementPanel({
               draft={rec.commentDraft}
               openUrl={originalUrl}
               openLabel="Open post to paste it"
+              quickActionLabel="Copy Draft & Open Thread"
             />
           )}
           {rec.dmDraft && (
@@ -104,6 +105,7 @@ export function EngagementPanel({
               draft={rec.dmDraft}
               openUrl={dmComposeUrl ?? originalUrl}
               openLabel={dmComposeUrl ? "Open DM to paste it" : "Open post (no DM link available)"}
+              quickActionLabel={dmComposeUrl ? "Copy Draft & Open DM" : "Copy Draft & Open Thread"}
             />
           )}
           {!rec.commentDraft && !rec.dmDraft && (
@@ -124,11 +126,14 @@ function DraftBox({
   draft,
   openUrl,
   openLabel,
+  quickActionLabel,
 }: {
   label: string;
   draft: NonNullable<Draft>;
   openUrl: string;
   openLabel: string;
+  /** Label for the combined one-click copy+open button — kept short and distinct from openLabel's more verbose phrasing. */
+  quickActionLabel: string;
 }) {
   const [text, setText] = useState(draft.text);
   const [copied, setCopied] = useState(false);
@@ -147,13 +152,29 @@ function DraftBox({
         <button
           type="button"
           onClick={() => {
+            // Both calls fire synchronously in this same click handler — window.open
+            // has to stay inside the direct user-gesture, otherwise some browsers
+            // treat a call made after an awaited clipboard write as a popup and
+            // block it. writeText() is fire-and-forget here, same as plain Copy below.
+            navigator.clipboard.writeText(text);
+            window.open(openUrl, "_blank", "noopener,noreferrer");
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          className="text-xs font-mono rounded-md bg-accent text-paper hover:bg-accent-hover px-3 py-1.5 font-medium"
+        >
+          {copied ? "Copied — tab open" : quickActionLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             navigator.clipboard.writeText(text);
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           }}
           className="text-xs font-mono rounded-md border border-line px-3 py-1.5"
         >
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied" : "Copy only"}
         </button>
         <a
           href={openUrl}
