@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
 
-export const ANALYSIS_PROMPT_VERSION = "analysis-v2-gemini";
+export const ANALYSIS_PROMPT_VERSION = "analysis-v3-gemini";
 export const ENGAGEMENT_PROMPT_VERSION = "engagement-v1-gemini";
 
 export const analysisResultSchema = z.object({

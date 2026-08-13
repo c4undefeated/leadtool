@@ -102,7 +102,7 @@ export class RedditApisSourceAdapter implements SourceAdapter {
 // of these intent words, same window, returned 100 matches spanning dozens
 // of subreddits. Long, specific sentences are rare in real posts; short
 // nouns + common intent words are not.
-const INTENT_WORDS = ["looking", "need", "recommend", "recommendation", "recommendations", "suggest", "suggestions", "advice", "hire", "considering", "want"];
+const INTENT_WORDS = ["looking", "need", "recommend", "recommendation", "recommendations", "suggest", "suggestions", "advice", "hire", "considering", "want", "worth"];
 
 // Length itself isn't the real constraint — a 609-character all-quoted
 // query parsed and returned HTTP 200 in live testing — but a generous cap
