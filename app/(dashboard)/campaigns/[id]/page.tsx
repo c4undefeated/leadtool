@@ -5,12 +5,11 @@ import { getAdapter } from "@/lib/sources";
 import {
   addKeywordAction,
   removeKeywordAction,
-  switchSourceToRedditAction,
-  switchSourceToTwitterAction,
   toggleCampaignStatusAction,
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
-import { isAiConfigured, isRedditConfigured, isTwitterConfigured } from "@/lib/sourceAvailability";
+import { isAiConfigured } from "@/lib/sourceAvailability";
+import { scanDisabledReason, sourceLabel } from "@/lib/format";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -43,6 +42,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const adapter = getAdapter(campaign.sourceType);
   const health = await adapter.health();
   const aiReady = isAiConfigured();
+  const disabledReason = scanDisabledReason({ sourceType: campaign.sourceType, aiReady, healthStatus: health.status });
   const vertical = campaign.company.offer ? getVerticalTemplate(campaign.company.offer.verticalTemplateKey) : null;
 
   const keywords = campaign.keywords.filter((k) => k.type === "keyword");
@@ -54,28 +54,24 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <div>
           <h1 className="font-display text-2xl">{campaign.name}</h1>
           <p className="text-xs font-mono text-muted mt-1">
-            {vertical ? `${vertical.label} · ` : ""}source: {campaign.sourceType} · {campaign._count.conversations}{" "}
+            {vertical ? `${vertical.label} · ` : ""}source: {sourceLabel(campaign.sourceType)} · {campaign._count.conversations}{" "}
             conversation{campaign._count.conversations === 1 ? "" : "s"} · {opportunityCount} opportunit
             {opportunityCount === 1 ? "y" : "ies"}
           </p>
           <p className="text-xs font-mono text-muted mt-1">
             Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never yet"}
-            {campaign.lastScanCacheHit ? " (served from cache)" : ""}
           </p>
           {campaign.lastScanAt && campaign.lastScanIngested !== null && (
             <p className="text-xs font-mono text-muted mt-1">
               <span className="text-ink">{campaign.lastScanOpportunities}</span> opportunit
               {campaign.lastScanOpportunities === 1 ? "y" : "ies"} · <span className="text-ink">{campaign.lastScanIngested}</span> ingested ·{" "}
-              <span
-                className="text-ink"
-                title="Already-seen posts (same source + ID) — never re-analyzed, zero additional cost."
-              >
+              <span className="text-ink" title="Already seen before — Scout never re-analyzes the same post twice.">
                 {campaign.lastScanSkippedDuplicates}
               </span>{" "}
               duplicate{campaign.lastScanSkippedDuplicates === 1 ? "" : "s"} skipped ·{" "}
               <span
                 className="text-ink"
-                title="Deleted/removed, too short, or spam/bot boilerplate — dropped before reaching Gemini to protect analysis spend."
+                title="Removed, too short, or spam — filtered out before analysis so your results stay clean."
               >
                 {campaign.lastScanSkippedJunk}
               </span>{" "}
@@ -84,7 +80,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           )}
           {campaign.status === "active" && campaign.sourceType !== "manual" && (
             <p className="text-xs font-mono text-muted mt-1">
-              Auto-scanned once daily (in addition to any manual runs) while Active — timing isn't exact, see README.
+              Scout automatically re-checks this campaign daily while it's Active.
             </p>
           )}
         </div>
@@ -97,52 +93,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       </div>
 
       <section className="rounded-lg border border-line bg-surface p-5">
-        <h2 className="font-medium text-sm mb-3">Live scanning ({campaign.sourceType})</h2>
-        {!aiReady && (
-          <p className="text-sm text-caution mb-2">
-            GEMINI_API_KEY is not set — Scout can't analyze anything yet, live or manual.
-          </p>
-        )}
-        {campaign.sourceType === "manual" && isRedditConfigured() && (
-          <div className="rounded-md border border-line bg-paper p-3 mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-muted">
-              This campaign was created as manual-only. Reddit ingestion (via Redditapis) is now configured —
-              switch this campaign to live scanning.
-            </p>
-            <form action={switchSourceToRedditAction}>
-              <input type="hidden" name="campaignId" value={campaign.id} />
-              <button type="submit" className="shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-paper hover:bg-accent-hover">
-                Switch to live Reddit
-              </button>
-            </form>
-          </div>
-        )}
-        {campaign.sourceType === "manual" && isTwitterConfigured() && (
-          <div className="rounded-md border border-line bg-paper p-3 mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-muted">
-              This campaign was created as manual-only. X/Twitter ingestion (via TwitterAPIs) is now configured —
-              switch this campaign to live scanning.
-            </p>
-            <form action={switchSourceToTwitterAction}>
-              <input type="hidden" name="campaignId" value={campaign.id} />
-              <button type="submit" className="shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-paper hover:bg-accent-hover">
-                Switch to live X/Twitter
-              </button>
-            </form>
-          </div>
-        )}
-        <p className="text-sm text-muted mb-3">{health.message}</p>
+        <h2 className="font-medium text-sm mb-3">Live scanning</h2>
         <div className="flex flex-wrap items-center gap-4 mb-3">
           <RunScanButton
             campaignId={campaign.id}
             disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
-            disabledReason={
-              campaign.sourceType === "manual"
-                ? "This campaign's source is manual — use the import form below instead."
-                : health.status !== "ok"
-                  ? health.message
-                  : undefined
-            }
+            disabledReason={disabledReason}
           />
           {campaign.sourceType !== "manual" && (
             <LeadRecencySelector campaignId={campaign.id} value={campaign.maxLeadAgeHours} />
@@ -151,7 +107,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         {campaign.sourceType !== "manual" && (
           <p className="text-xs text-muted">
             Posts older than this are never surfaced, even if they'd otherwise match — recency is enforced
-            against each post's real timestamp, not just requested from the provider.
+            against each post's real timestamp.
           </p>
         )}
       </section>

@@ -9,7 +9,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen md:flex">
-      <DashboardSidebar companyName={user.company.name} />
+      <DashboardSidebar companyName={user.company.name} userName={user.name} userEmail={user.email} />
       <main className="flex-1 min-w-0 px-4 py-8 md:px-8">
         <div className="max-w-5xl mx-auto">{children}</div>
       </main>

@@ -7,6 +7,11 @@ import { normalizeManualSubmission } from "@/lib/sources/manualAdapter";
 import { runAnalysisForConversation, runScanForCampaign } from "@/lib/pipeline";
 import { isAiConfigured } from "@/lib/sourceAvailability";
 
+// Shown to customers when Scout's analysis engine isn't active for this
+// account — a setup gap, not something that resolves on its own, so it
+// never claims to be "retrying." Never names Gemini or an env var.
+const ANALYSIS_NOT_READY_MESSAGE = "Scout's analysis engine isn't active for this account yet — contact support to enable it.";
+
 export type ImportFormState = { error?: string; success?: string } | undefined;
 
 async function ownedCampaign(campaignId: string) {
@@ -32,10 +37,7 @@ export async function importConversationAction(
   if (!originalText) return { error: "Paste the conversation text." };
   if (!url) return { error: "Add a link to the original conversation." };
   if (!isAiConfigured()) {
-    return {
-      error:
-        "GEMINI_API_KEY is not set, so Scout can't analyze anything yet. Add it to .env and restart — see README.md.",
-    };
+    return { error: ANALYSIS_NOT_READY_MESSAGE };
   }
 
   const campaign = await ownedCampaign(campaignId);
@@ -64,7 +66,11 @@ export async function importConversationAction(
       ? { success: "Scout found a genuine opportunity — check the feed." }
       : { success: "Scout reviewed it and did not find genuine buying intent here. That's a valid, honest result." };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Analysis failed." };
+    // Raw analysis-engine errors (validation failures, provider faults)
+    // are an admin concern, not a customer one — logged server-side,
+    // never echoed verbatim to the UI.
+    console.error(`[importConversationAction] analysis failed for conversation ${conversation.id}:`, err);
+    return { error: "Analysis is temporarily unavailable — please try again shortly." };
   }
 }
 
@@ -81,13 +87,25 @@ export type ScanState = { error: string; result?: undefined } | { error?: undefi
 export async function runScanAction(campaignId: string): Promise<ScanState> {
   await ownedCampaign(campaignId);
   if (!isAiConfigured()) {
-    return { error: "GEMINI_API_KEY is not set — analysis is unavailable until it is." };
+    return { error: ANALYSIS_NOT_READY_MESSAGE };
   }
   const result = await runScanForCampaign(campaignId);
   revalidatePath(`/campaigns/${campaignId}`);
   revalidatePath("/opportunities");
 
-  if (result.errors.length > 0) return { error: result.errors.join(" ") };
+  if (result.errors.length > 0) {
+    // result.errors carries the real, detailed, admin-facing record
+    // (already logged server-side inside runScanForCampaign) — a customer
+    // only ever sees one of two honest, non-technical states: a permanent
+    // setup gap that needs a human, or a live fault the next scheduled
+    // scan will genuinely retry.
+    return {
+      error: result.notConfigured
+        ? "Live scanning isn't enabled for this campaign yet — contact support to turn it on."
+        : "Scan engine temporarily paused — retrying automatically.",
+    };
+  }
+
   return {
     result: {
       conversationsIngested: result.conversationsIngested,
