@@ -12,6 +12,18 @@ export type IngestResult = {
   errors: string[];
 };
 
+/** Runs `fn` over `items` with at most `concurrency` in flight at once. */
+async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const item = items[next++]!;
+      await fn(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+}
+
 /** Inserts a normalized conversation for a campaign, deduping on (source, sourceId). */
 async function ingestOne(campaignId: string, nc: NormalizedConversation) {
   if (nc.sourceId) {
@@ -141,6 +153,8 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   // record that honestly, separate from whether anything strong came out of it.
   await prisma.campaign.update({ where: { id: campaign.id }, data: { lastScanAt: new Date() } });
 
+  // Ingest first — cheap, just dedup lookups + inserts, fine to do sequentially.
+  const newConversationIds: string[] = [];
   for (const nc of conversations) {
     try {
       const { conversation, isNew } = await ingestOne(campaignId, nc);
@@ -149,12 +163,26 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
         continue;
       }
       result.conversationsIngested += 1;
-      const opportunity = await runAnalysisForConversation(conversation.id, offer);
-      if (opportunity) result.opportunitiesCreated += 1;
+      newConversationIds.push(conversation.id);
     } catch (err) {
-      result.errors.push(err instanceof Error ? err.message : "Unknown error while processing a conversation.");
+      result.errors.push(err instanceof Error ? err.message : "Unknown error while ingesting a conversation.");
     }
   }
+
+  // Analysis is the slow part — one Gemini call per conversation. Running
+  // several in flight at once keeps a scan with many new posts (up to 25)
+  // from running long enough to hit the serverless function's execution
+  // limit, which previously showed up as the whole scan failing partway
+  // with no useful error, just a dead connection.
+  const ANALYSIS_CONCURRENCY = 5;
+  await mapWithConcurrency(newConversationIds, ANALYSIS_CONCURRENCY, async (conversationId) => {
+    try {
+      const opportunity = await runAnalysisForConversation(conversationId, offer);
+      if (opportunity) result.opportunitiesCreated += 1;
+    } catch (err) {
+      result.errors.push(err instanceof Error ? err.message : "Unknown error while analyzing a conversation.");
+    }
+  });
 
   return result;
 }

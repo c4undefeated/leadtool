@@ -21,6 +21,7 @@ never pretending to have data or results it doesn't have.
 | Manual conversation import (Track A / validation) | Fully working, always available |
 | Contacted tracking (`contactedAt`/`engagementType`/`finalResponse`) | Fully working — distinct from "draft generated," never set by IntentScout itself |
 | Reddit adapter | Code complete, **inert without `REDDITAPIS_API_KEY`**, read-only |
+| Website enrichment (auto-suggest keywords/subreddits/exclusions from a URL) | Fully working, requires `GEMINI_API_KEY` — suggestions only, never auto-saved |
 | Database | **Live** — Supabase Postgres project `intentscout` (`dalywukhftxlopskrtaq`, us-east-1) |
 | Vercel deployment | **Live** — git-integrated, deploys on push to `main` |
 
