@@ -25,7 +25,14 @@ export async function GET(request: Request) {
     select: { id: true, name: true },
   });
 
-  const summary: { campaignId: string; name: string; ingested: number; opportunities: number; errors: string[] }[] = [];
+  const summary: {
+    campaignId: string;
+    name: string;
+    ingested: number;
+    skippedJunk: number;
+    opportunities: number;
+    errors: string[];
+  }[] = [];
 
   await mapWithConcurrency(campaigns, CAMPAIGN_CONCURRENCY, async (campaign) => {
     try {
@@ -34,6 +41,7 @@ export async function GET(request: Request) {
         campaignId: campaign.id,
         name: campaign.name,
         ingested: result.conversationsIngested,
+        skippedJunk: result.skippedJunk,
         opportunities: result.opportunitiesCreated,
         errors: result.errors,
       });
@@ -42,6 +50,7 @@ export async function GET(request: Request) {
         campaignId: campaign.id,
         name: campaign.name,
         ingested: 0,
+        skippedJunk: 0,
         opportunities: 0,
         errors: [err instanceof Error ? err.message : "Unknown error."],
       });

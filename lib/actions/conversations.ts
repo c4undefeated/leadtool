@@ -81,7 +81,9 @@ export async function runScanAction(campaignId: string): Promise<ScanState> {
 
   if (result.errors.length > 0) return { error: result.errors.join(" ") };
   return {
-    success: `Scanned. ${result.conversationsIngested} new conversation(s), ${result.opportunitiesCreated} genuine opportunit${
+    success: `Scanned. ${result.conversationsIngested} new conversation(s)${
+      result.skippedJunk > 0 ? ` (${result.skippedJunk} filtered as junk before analysis)` : ""
+    }, ${result.opportunitiesCreated} genuine opportunit${
       result.opportunitiesCreated === 1 ? "y" : "ies"
     } found${result.conversationsIngested > 0 && result.opportunitiesCreated === 0 ? " — no strong opportunities today." : "."}`,
   };
