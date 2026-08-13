@@ -138,7 +138,7 @@ export async function addExclusionsBulkAction(campaignId: string, terms: string[
   return { added: cleaned.length };
 }
 
-const VALID_MAX_LEAD_AGE_HOURS = [12, 24, 48] as const;
+const VALID_MAX_LEAD_AGE_HOURS = [12, 24, 48, 168, 720] as const;
 
 /** How recent a live-scanned post must be to surface at all — see lib/sources/redditApisAdapter.ts for enforcement. */
 export async function updateMaxLeadAgeAction(formData: FormData): Promise<void> {
