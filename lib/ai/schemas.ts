@@ -93,13 +93,14 @@ export const engagementResponseSchema: Schema = {
 
 export const enrichmentResultSchema = z.object({
   buyer_keywords: z.array(z.string()).max(15),
+  topic_terms: z.array(z.string()).max(8),
   target_subreddits: z.array(z.string()).max(15),
   excluded_terms: z.array(z.string()).max(15),
 });
 
 export type EnrichmentResult = z.infer<typeof enrichmentResultSchema>;
 
-/** Website → keyword/subreddit/exclusion suggestions for campaign setup. Suggestions only — never auto-saved. */
+/** Website → keyword/topic/subreddit/exclusion suggestions for campaign setup. Suggestions only — never auto-saved. */
 export const enrichmentResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -108,6 +109,12 @@ export const enrichmentResponseSchema: Schema = {
       items: { type: Type.STRING },
       maxItems: "15",
       description: "Short phrases a real prospect would type when they have a live need this business could serve — not marketing language.",
+    },
+    topic_terms: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      maxItems: "8",
+      description: "1-3 word core nouns for what this business sells (e.g. \"personal trainer\", \"fitness coach\"), NOT full sentences — these get combined with generic buying-intent words at search time, so they need to be short to be useful.",
     },
     target_subreddits: {
       type: Type.ARRAY,
@@ -122,7 +129,7 @@ export const enrichmentResponseSchema: Schema = {
       description: "Terms likely to cause false positives — competitor names, job-seeking language, industry jargon used by professionals rather than customers.",
     },
   },
-  required: ["buyer_keywords", "target_subreddits", "excluded_terms"],
+  required: ["buyer_keywords", "topic_terms", "target_subreddits", "excluded_terms"],
 };
 
 export function priorityTierFromMatchScore(matchScore: number): "high" | "potential" | "low" {

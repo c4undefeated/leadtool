@@ -113,7 +113,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         )}
       </section>
 
-      <WebsiteEnrichmentPanel campaignId={campaign.id} />
+      <WebsiteEnrichmentPanel campaignId={campaign.id} sourceType={campaign.sourceType} />
 
       <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-3">What Scout is looking for</h2>

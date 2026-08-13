@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       siteTitle: site.title,
       siteDescription: site.description,
       buyerKeywords: suggestions.buyer_keywords,
+      topicTerms: suggestions.topic_terms,
       targetSubreddits: suggestions.target_subreddits,
       excludedTerms: suggestions.excluded_terms,
     });

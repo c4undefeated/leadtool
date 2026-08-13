@@ -106,7 +106,7 @@ export async function switchSourceToTwitterAction(formData: FormData): Promise<v
 export async function addKeywordsBulkAction(
   campaignId: string,
   terms: string[],
-  type: "keyword" | "subreddit"
+  type: "keyword" | "topic" | "subreddit"
 ): Promise<{ added: number }> {
   const { campaign } = await ownedCampaignOrThrow(campaignId);
   const cleaned = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean))).slice(0, 25);

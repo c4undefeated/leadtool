@@ -7,20 +7,27 @@ type Suggestions = {
   siteTitle: string | null;
   siteDescription: string | null;
   buyerKeywords: string[];
+  topicTerms: string[];
   targetSubreddits: string[];
   excludedTerms: string[];
 };
 
-export function WebsiteEnrichmentPanel({ campaignId }: { campaignId: string }) {
+export function WebsiteEnrichmentPanel({ campaignId, sourceType }: { campaignId: string; sourceType: string }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [suggestions, setSuggestions] = useState<Suggestions | null>(null);
   const [checkedKeywords, setCheckedKeywords] = useState<Set<string>>(new Set());
+  const [checkedTopics, setCheckedTopics] = useState<Set<string>>(new Set());
   const [checkedSubreddits, setCheckedSubreddits] = useState<Set<string>>(new Set());
   const [checkedExclusions, setCheckedExclusions] = useState<Set<string>>(new Set());
   const [applyPending, startApply] = useTransition();
   const [applied, setApplied] = useState<string | undefined>();
+  // Topic terms are only meaningful to the Reddit adapter's boolean query
+  // strategy (lib/sources/redditApisAdapter.ts) — suggesting them for a
+  // Twitter or manual campaign would silently store something nothing
+  // ever reads or shows back.
+  const showTopics = sourceType === "reddit";
 
   async function scan() {
     if (!url.trim()) return;
@@ -41,6 +48,7 @@ export function WebsiteEnrichmentPanel({ campaignId }: { campaignId: string }) {
       }
       setSuggestions(data);
       setCheckedKeywords(new Set(data.buyerKeywords));
+      setCheckedTopics(new Set(showTopics ? data.topicTerms : []));
       setCheckedSubreddits(new Set(data.targetSubreddits));
       setCheckedExclusions(new Set(data.excludedTerms));
     } catch {
@@ -52,18 +60,19 @@ export function WebsiteEnrichmentPanel({ campaignId }: { campaignId: string }) {
 
   function applySelected() {
     startApply(async () => {
-      const [k, s, e] = await Promise.all([
+      const [k, t, s, e] = await Promise.all([
         addKeywordsBulkAction(campaignId, Array.from(checkedKeywords), "keyword"),
+        addKeywordsBulkAction(campaignId, Array.from(checkedTopics), "topic"),
         addKeywordsBulkAction(campaignId, Array.from(checkedSubreddits), "subreddit"),
         addExclusionsBulkAction(campaignId, Array.from(checkedExclusions)),
       ]);
-      const total = k.added + s.added + e.added;
+      const total = k.added + t.added + s.added + e.added;
       setApplied(total > 0 ? `Added ${total} suggestion${total === 1 ? "" : "s"} to the campaign below.` : "Nothing selected to add.");
       setSuggestions(null);
     });
   }
 
-  const totalChecked = checkedKeywords.size + checkedSubreddits.size + checkedExclusions.size;
+  const totalChecked = checkedKeywords.size + checkedTopics.size + checkedSubreddits.size + checkedExclusions.size;
 
   return (
     <section className="rounded-lg border border-line bg-surface p-5">
@@ -99,6 +108,7 @@ export function WebsiteEnrichmentPanel({ campaignId }: { campaignId: string }) {
           {suggestions.siteTitle && <p className="text-xs text-muted italic">Read as: "{suggestions.siteTitle}"</p>}
 
           {suggestions.buyerKeywords.length === 0 &&
+          (!showTopics || suggestions.topicTerms.length === 0) &&
           suggestions.targetSubreddits.length === 0 &&
           suggestions.excludedTerms.length === 0 ? (
             <p className="text-sm text-muted">
@@ -113,6 +123,14 @@ export function WebsiteEnrichmentPanel({ campaignId }: { campaignId: string }) {
                 checked={checkedKeywords}
                 setChecked={setCheckedKeywords}
               />
+              {showTopics && (
+                <SuggestionGroup
+                  label="Topic terms (broadens Reddit search beyond exact keyword matches)"
+                  items={suggestions.topicTerms}
+                  checked={checkedTopics}
+                  setChecked={setCheckedTopics}
+                />
+              )}
               <SuggestionGroup
                 label="Target subreddits (unverified — check these exist before scanning)"
                 items={suggestions.targetSubreddits}
