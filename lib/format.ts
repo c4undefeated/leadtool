@@ -41,6 +41,33 @@ export function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source;
 }
 
+/**
+ * Customer-facing scan-availability copy. Deliberately never names a
+ * vendor (Redditapis, TwitterAPIs, Gemini), an env var, or a balance —
+ * those are operator/admin details, not something a managed-SaaS user
+ * needs to see. But it still tells the truth about severity:
+ * "not configured" is permanent until an operator acts (so it says so,
+ * and never claims to be retrying), while a live provider fault really
+ * does get retried automatically by the next scheduled scan, so saying
+ * that is accurate, not a fabrication.
+ */
+export function scanDisabledReason(params: {
+  sourceType: string;
+  aiReady: boolean;
+  healthStatus: "ok" | "not_configured" | "error";
+}): string | undefined {
+  if (params.sourceType === "manual") {
+    return "This campaign uses manual import — add conversations directly below.";
+  }
+  if (!params.aiReady || params.healthStatus === "not_configured") {
+    return "Live scanning isn't enabled for this campaign yet — contact support to turn it on.";
+  }
+  if (params.healthStatus === "error") {
+    return "Scan engine temporarily paused — retrying automatically.";
+  }
+  return undefined;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   new: "New",
   reviewed: "Reviewed",

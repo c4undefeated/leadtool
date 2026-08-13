@@ -33,25 +33,20 @@ export function RunScanButton({ campaignId, disabled, disabledReason }: { campai
 function ScanSummaryBanner({ result }: { result: ScanBreakdown }) {
   return (
     <div className="mt-2 rounded-md border border-line bg-surface px-3 py-2">
-      <p className="text-sm text-good mb-1">
-        Scan complete{result.cacheHit ? " — served from cache, no provider call made" : ""}.
-      </p>
+      <p className="text-sm text-good mb-1">Scan complete.</p>
       <p className="text-xs font-mono text-muted">
         <span className="text-ink">{result.opportunitiesCreated}</span> opportunit{result.opportunitiesCreated === 1 ? "y" : "ies"} created
         {" · "}
         <span className="text-ink">{result.conversationsIngested}</span> ingested
         {" · "}
-        <span
-          className="text-ink"
-          title="Already-seen posts (same source + ID) — never re-analyzed, zero additional cost."
-        >
+        <span className="text-ink" title="Already seen before — Scout never re-analyzes the same post twice.">
           {result.skippedDuplicates}
         </span>{" "}
         duplicate{result.skippedDuplicates === 1 ? "" : "s"} skipped
         {" · "}
         <span
           className="text-ink"
-          title="Deleted/removed, too short, or spam/bot boilerplate — dropped before reaching Gemini to protect analysis spend."
+          title="Removed, too short, or spam — filtered out before analysis so your results stay clean."
         >
           {result.skippedJunk}
         </span>{" "}

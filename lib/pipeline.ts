@@ -12,6 +12,14 @@ export type IngestResult = {
   skippedJunk: number;
   /** Whether the provider search itself was served from cache — null when no provider call happens (manual source, or the search failed before recording). */
   cacheHit: boolean | null;
+  /**
+   * true when a failure is structural (nothing configured — needs an
+   * operator to act, will never resolve on its own) rather than transient
+   * (a live provider fault the next scheduled scan will genuinely retry).
+   * Customer-facing callers should read this instead of parsing `errors`
+   * — see lib/format.ts's scanDisabledReason for the honest copy for each case.
+   */
+  notConfigured: boolean;
   errors: string[];
 };
 
@@ -189,6 +197,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     skippedDuplicates: 0,
     skippedJunk: 0,
     cacheHit: null,
+    notConfigured: false,
     errors: [],
   };
 
@@ -199,6 +208,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
 
   const offer = campaign.company.offer;
   if (!offer) {
+    result.notConfigured = true;
     result.errors.push("No offer profile found for this company.");
     return result;
   }
@@ -206,6 +216,14 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   const adapter = getAdapter(campaign.sourceType);
   const health = await adapter.health();
   if (health.status !== "ok") {
+    // Raw provider detail (vendor name, balance, env var hints) belongs in
+    // server logs for whoever operates this deployment — never in what a
+    // customer-facing surface returns. result.errors stays the detailed,
+    // admin-facing record (consumed by the cron route's JSON summary);
+    // callers building a customer-facing message should use
+    // lib/format.ts's scanDisabledReason instead of this array's contents.
+    console.error(`[runScanForCampaign] provider unhealthy for campaign ${campaign.id} (${campaign.sourceType}): ${health.message}`);
+    result.notConfigured = health.status === "not_configured";
     result.errors.push(health.message);
     return result;
   }
@@ -245,7 +263,9 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     });
     result.cacheHit = lastUsage?.cacheHit ?? null;
   } catch (err) {
-    result.errors.push(err instanceof Error ? err.message : "Unknown ingestion error.");
+    const message = err instanceof Error ? err.message : "Unknown ingestion error.";
+    console.error(`[runScanForCampaign] search failed for campaign ${campaign.id} (${campaign.sourceType}):`, err);
+    result.errors.push(message);
     return result;
   }
 
@@ -271,7 +291,9 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
 
       newConversationIds.push(conversation.id);
     } catch (err) {
-      result.errors.push(err instanceof Error ? err.message : "Unknown error while ingesting a conversation.");
+      const message = err instanceof Error ? err.message : "Unknown error while ingesting a conversation.";
+      console.error(`[runScanForCampaign] ingestion failed for campaign ${campaign.id}:`, err);
+      result.errors.push(message);
     }
   }
 
@@ -286,7 +308,9 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       const opportunity = await runAnalysisForConversation(conversationId, offer);
       if (opportunity) result.opportunitiesCreated += 1;
     } catch (err) {
-      result.errors.push(err instanceof Error ? err.message : "Unknown error while analyzing a conversation.");
+      const message = err instanceof Error ? err.message : "Unknown error while analyzing a conversation.";
+      console.error(`[runScanForCampaign] analysis failed for conversation ${conversationId} (campaign ${campaign.id}):`, err);
+      result.errors.push(message);
     }
   });
 
