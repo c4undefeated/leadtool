@@ -53,9 +53,16 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // community; zero or multiple communities fall back to an unscoped
     // global search rather than looping per-subreddit.
     const subreddit = params.communities.length === 1 ? params.communities[0] : undefined;
+    // Scoped to one community: sort by newest, like watching a live feed of
+    // a place you already know is relevant. Unscoped (global) search sorts
+    // by Reddit's own relevance ranking instead — "newest across all of
+    // Reddit" for a common phrase just surfaces whatever unrelated
+    // high-traffic community used those words most recently, drowning out
+    // a smaller target audience entirely.
+    const sort = subreddit ? "new" : "relevance";
 
     const context = { campaignId: params.campaignId, companyId: params.companyId };
-    const response = await redditapis.searchRedditapis({ q: query, subreddit, sort: "new", limit }, context);
+    const response = await redditapis.searchRedditapis({ q: query, subreddit, sort, limit }, context);
 
     return response.posts.map(normalizePost);
   }
