@@ -61,10 +61,24 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // a smaller target audience entirely.
     const sort = subreddit ? "new" : "relevance";
 
-    const context = { campaignId: params.campaignId, companyId: params.companyId };
-    const response = await redditapis.searchRedditapis({ q: query, subreddit, sort, limit }, context);
+    // Redditapis's own time-window param only takes coarse buckets (hour/
+    // day/week/month/year/all) and — per its docs — mainly affects
+    // top/controversial sort, not new/relevance. We use it as a cheap
+    // superset hint to the provider (never narrower than what we actually
+    // need), then enforce the real cutoff ourselves against each post's
+    // real created_utc below. That's the only place true 12h/24h/48h
+    // precision exists — Redditapis doesn't offer it, so we don't pretend
+    // to pass it through.
+    const maxAgeHours = params.maxAgeHours ?? 24;
+    const t = maxAgeHours <= 24 ? "day" : "week";
 
-    return response.posts.map(normalizePost);
+    const context = { campaignId: params.campaignId, companyId: params.companyId };
+    const response = await redditapis.searchRedditapis({ q: query, subreddit, sort, t, limit }, context);
+
+    const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+    const recentPosts = response.posts.filter((post) => post.created_utc * 1000 >= cutoff);
+
+    return recentPosts.map(normalizePost);
   }
 }
 

@@ -141,6 +141,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       keywords,
       communities,
       limit: 25,
+      maxAgeHours: campaign.maxLeadAgeHours,
       campaignId: campaign.id,
       companyId: campaign.companyId,
     });
