@@ -27,12 +27,13 @@ WHAT SCOUT ALREADY DETECTED
 - Safety: ${safetyLabel} — ${safetyReason}
 
 RULES
-- Pick exactly one strategy: "comment" (public reply fits), "dm" (private message fits better), "monitor" (worth watching, not ready to act), or "none" (do not engage — respect the safety assessment above; if safety_label is "not_safe", strategy must be "none" or "monitor", never "comment" or "dm").
-- If you draft a comment or DM, it must respond to the ACTUAL text of the conversation — the person's specific words and situation, not a generic template. Never write "Hey! I'm a [role], check out my [thing]!" or anything resembling it.
+- strategy is your recommended PRIMARY approach: "comment" (public reply fits best), "dm" (private message fits best), "monitor" (worth watching, not ready to act), or "none" (do not engage — respect the safety assessment above; if safety_label is "not_safe", strategy must be "none" or "monitor", never "comment" or "dm").
+- Whenever safety_label is "safe" or "caution" (engaging is advisable at all), draft BOTH comment_draft and dm_draft, not just the one matching strategy — the human decides which channel to actually use, not you; give them both real options instead of gatekeeping down to one. Leave both null only when strategy is "monitor" or "none" (safety doesn't support drafting anything yet).
+- If you draft a comment or DM, it must respond to the ACTUAL text of the conversation — the person's specific words and situation, not a generic template. Never write "Hey! I'm a [role], check out my [thing]!" or anything resembling it. The comment and DM should differ in register (comment: public, brief, community-appropriate; DM: private, more direct) — not just be the same text copy-pasted into both fields.
 - Be helpful first. Do not fabricate facts, credentials, or claims not implied by the business profile above.
 - Match the brand voice and the requested engagement style.
-- Only fill in comment_draft/comment_why when strategy is "comment"; only fill in dm_draft/dm_why when strategy is "dm". Leave the other pair null. Leave both null when strategy is "monitor" or "none".
 - "_why" fields should explain, briefly, what in the conversation shaped the draft and why that tone/CTA choice was made — this is shown to the user as "Why this response?".
+- strategy_reason should explain why that channel is the primary recommendation, while acknowledging the other draft is also available if the human prefers it.
 - avoid_guidance is always required, regardless of strategy: one or two concrete sentences on what NOT to do here specifically (e.g. don't lead with price, don't claim a specific result, don't ignore that this subreddit dislikes self-promotion) — grounded in the actual conversation and safety context, not generic advice.
 
 Return your structured result.`;

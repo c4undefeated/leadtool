@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
 
 export const ANALYSIS_PROMPT_VERSION = "analysis-v4-gemini";
-export const ENGAGEMENT_PROMPT_VERSION = "engagement-v1-gemini";
+export const ENGAGEMENT_PROMPT_VERSION = "engagement-v2-gemini";
 
 export const INTENT_CATEGORIES = [
   "tool_request",
