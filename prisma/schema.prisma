@@ -69,6 +69,7 @@ model Campaign {
   maxLeadAgeHours Int          @default(24) // 12 | 24 | 48 | 168 | 720 — how recent a live-scanned post must be to surface at all
   keywords      Keyword[]
   conversations Conversation[]
+  searchSurfaces SearchSurface[]
   createdAt     DateTime       @default(now())
   lastScanAt    DateTime? // set whenever a scan actually runs (manual or scheduled) — never fabricated
 
@@ -91,6 +92,38 @@ model Keyword {
   type       String   @default("keyword") // keyword | subreddit | topic
 }
 
+/// A single discovery angle for a campaign's search, beyond the always-on
+/// keyword/topic query in redditApisAdapter.ts. Generated once per campaign
+/// from the Offer profile (lib/ai/searchSurfaces.ts), then rotated across
+/// scans rather than all executed every time — see
+/// lib/sources/searchOrchestrator.ts for the rotation/priority logic this
+/// feeds. Vertical-agnostic: `family` and `phrases` are always derived from
+/// the business's own Offer, never a hardcoded vertical's terminology.
+model SearchSurface {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // buyer_request | provider_search | recommendation | problem | solution |
+  // goal | planning | comparison | alternative | troubleshooting |
+  // dissatisfaction | urgency | beginner_confusion | domain_topic | local
+  family     String
+  phrases    String // JSON-stringified string[]
+
+  // Exploration/exploitation stats — durable rotation state. No separate
+  // per-run log table; cumulative counters are enough to answer "recently
+  // run?", "historically high/low yield?" without a magic number (see
+  // priorityScore in lib/sources/searchOrchestrator.ts).
+  timesRun           Int       @default(0)
+  lastRunAt          DateTime?
+  conversationsFound Int       @default(0) // raw hits across all runs, pre-dedup
+  opportunitiesFound Int       @default(0) // genuine opportunities credited to this surface
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([campaignId])
+}
+
 /// The normalized object every SourceAdapter must produce. No adapter-specific
 /// fields live here beyond the generic `metadata` JSON blob (spec section 4).
 model Conversation {
@@ -107,6 +140,12 @@ model Conversation {
   postedAt     DateTime
   ingestedAt   DateTime     @default(now())
   metadata     String? // opaque JSON, source-specific, never read by analysis/UI logic
+  // JSON-stringified string[] of SearchSurface ids whose query returned this
+  // post in the scan that first ingested it (a post found by several
+  // surfaces still becomes exactly one Conversation — this is how yield
+  // gets credited back to every surface that actually found it, not just
+  // one). Null for manual imports and posts predating this field.
+  foundBySurfaces String?
   opportunity  Opportunity?
 
   @@unique([source, sourceId])

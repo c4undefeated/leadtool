@@ -3,7 +3,11 @@ import { getAdapter } from "@/lib/sources";
 import type { NormalizedConversation } from "@/lib/sources/types";
 import { analyzeConversation, ANALYSIS_PROMPT_VERSION } from "@/lib/ai/analysis";
 import { priorityTierFromMatchScore } from "@/lib/ai/schemas";
+import { mapWithConcurrency } from "@/lib/concurrency";
+import { creditOpportunityToSurfaces } from "@/lib/sources/searchOrchestrator";
 import { Prisma, type Offer } from "@prisma/client";
+
+export { mapWithConcurrency };
 
 export type IngestResult = {
   conversationsIngested: number;
@@ -73,18 +77,6 @@ export function isJunkPost(conversation: NormalizedConversation): JunkCheck {
   return { isJunk: false };
 }
 
-/** Runs `fn` over `items` with at most `concurrency` in flight at once. */
-export async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const item = items[next++]!;
-      await fn(item);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
-}
-
 /**
  * Inserts a normalized conversation for a campaign, deduping on
  * (source, sourceId). The check-then-insert below isn't atomic, so a
@@ -117,6 +109,7 @@ async function ingestOne(campaignId: string, nc: NormalizedConversation) {
         community: nc.community,
         postedAt: nc.postedAt,
         metadata: nc.metadata ? JSON.stringify(nc.metadata) : null,
+        foundBySurfaces: nc.foundBySurfaces ? JSON.stringify(nc.foundBySurfaces) : null,
       },
     });
     return { conversation, isNew: true };
@@ -176,6 +169,19 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
       activity: { create: { event: "surfaced", note: "Scout identified this as a genuine opportunity." } },
     },
   });
+
+  // Exploitation half of rotation: whichever discovery angle(s) actually
+  // found this post get credit now that it's a confirmed genuine
+  // opportunity, not just a raw hit — see searchOrchestrator.ts's
+  // rankSurfaces for how this feeds back into future scans.
+  if (conversation.foundBySurfaces) {
+    try {
+      const surfaceIds: string[] = JSON.parse(conversation.foundBySurfaces);
+      await creditOpportunityToSurfaces(surfaceIds);
+    } catch (err) {
+      console.error(`[runAnalysisForConversation] failed to parse foundBySurfaces for conversation ${conversation.id}:`, err);
+    }
+  }
 
   return opportunity;
 }
@@ -245,6 +251,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       maxAgeHours: campaign.maxLeadAgeHours,
       campaignId: campaign.id,
       companyId: campaign.companyId,
+      geography: offer.geography,
     });
     console.log(`[runScanForCampaign] campaign ${campaign.id}: ${conversations.length} raw conversation(s) to ingest`);
 
@@ -301,14 +308,36 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     }
   }
 
+  // Multi-surface retrieval can realistically return up to ~200 raw posts
+  // pre-dedup now (baseline + several rotated surfaces), roughly double the
+  // single-query ceiling this concurrency/cap pair was originally sized
+  // for. A hard cap here is an honest safety valve, not a silent drop: the
+  // conversations are already stored above (dedup keeps working next scan
+  // regardless), only analysis of the overflow is deferred — and that's
+  // logged, not swallowed. KNOWN LIMITATION: there is currently no
+  // mechanism that retroactively analyzes an ingested-but-not-yet-analyzed
+  // conversation on a later scan (a future scan only analyzes posts its own
+  // fresh search returns) — deferred conversations stay ingested but
+  // unanalyzed until something else surfaces them again. Worth a follow-up
+  // if this cap starts getting hit routinely rather than on rare large
+  // first-ever scans.
+  const MAX_ANALYSIS_PER_SCAN = 150;
+  const toAnalyze = newConversationIds.slice(0, MAX_ANALYSIS_PER_SCAN);
+  if (newConversationIds.length > MAX_ANALYSIS_PER_SCAN) {
+    console.error(
+      `[runScanForCampaign] campaign ${campaign.id}: ${newConversationIds.length} new conversations exceeds the ${MAX_ANALYSIS_PER_SCAN}-per-scan analysis cap — ${newConversationIds.length - MAX_ANALYSIS_PER_SCAN} ingested but deferred, not analyzed this run.`,
+    );
+  }
+
   // Analysis is the slow part — one Gemini call per conversation. Running
-  // several in flight at once keeps a scan with many new posts (up to 100,
-  // since the search fetch limit was raised alongside this) from running
+  // several in flight at once keeps a scan with many new posts from running
   // long enough to hit the serverless function's execution limit, which
   // previously showed up as the whole scan failing partway with no useful
-  // error, just a dead connection.
-  const ANALYSIS_CONCURRENCY = 10;
-  await mapWithConcurrency(newConversationIds, ANALYSIS_CONCURRENCY, async (conversationId) => {
+  // error, just a dead connection. Raised alongside the analysis cap above
+  // when multi-surface retrieval roughly doubled the realistic ceiling on
+  // new posts per scan.
+  const ANALYSIS_CONCURRENCY = 15;
+  await mapWithConcurrency(toAnalyze, ANALYSIS_CONCURRENCY, async (conversationId) => {
     try {
       const opportunity = await runAnalysisForConversation(conversationId, offer);
       if (opportunity) result.opportunitiesCreated += 1;
