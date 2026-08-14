@@ -156,3 +156,69 @@ export function priorityTierFromMatchScore(matchScore: number): "high" | "potent
   if (matchScore >= 65) return "potential";
   return "low";
 }
+
+/**
+ * Discovery angles for retrieval (lib/ai/searchSurfaces.ts,
+ * lib/sources/searchOrchestrator.ts). Deliberately separate from
+ * intent_category above — a family describes a RETRIEVAL angle (how we go
+ * looking), a category describes a CLASSIFICATION of what Gemini found
+ * (what it decided once it got there). They're related in spirit but not
+ * the same enum on purpose.
+ */
+export const SEARCH_SURFACE_FAMILIES = [
+  "buyer_request",
+  "provider_search",
+  "recommendation",
+  "problem",
+  "solution",
+  "goal",
+  "planning",
+  "comparison",
+  "alternative",
+  "troubleshooting",
+  "dissatisfaction",
+  "urgency",
+  "beginner_confusion",
+  "domain_topic",
+  "local",
+] as const;
+
+export const searchSurfaceResultSchema = z.object({
+  surfaces: z
+    .array(
+      z.object({
+        family: z.enum(SEARCH_SURFACE_FAMILIES),
+        phrases: z.array(z.string()).max(8),
+      }),
+    )
+    .min(1)
+    .max(SEARCH_SURFACE_FAMILIES.length),
+});
+
+export type SearchSurfaceResult = z.infer<typeof searchSurfaceResultSchema>;
+
+/** Business offer -> discovery-angle phrase sets. Generated once per campaign, then persisted and rotated — see lib/sources/searchOrchestrator.ts. */
+export const searchSurfaceResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    surfaces: {
+      type: Type.ARRAY,
+      minItems: "1",
+      maxItems: String(SEARCH_SURFACE_FAMILIES.length),
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          family: { type: Type.STRING, enum: [...SEARCH_SURFACE_FAMILIES] },
+          phrases: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            maxItems: "8",
+            description: "Short (2-5 word) phrases for this discovery angle — never full sentences. Empty array if this angle genuinely doesn't apply (e.g. \"local\" for a fully remote business).",
+          },
+        },
+        required: ["family", "phrases"],
+      },
+    },
+  },
+  required: ["surfaces"],
+};

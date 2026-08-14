@@ -17,6 +17,8 @@ export type NormalizedConversation = {
   postedAt: Date;
   /** Opaque, source-specific extras. Analysis and UI code must never read this. */
   metadata?: Record<string, unknown>;
+  /** SearchSurface ids (or "baseline") whose query returned this post — first-class, not opaque metadata, because pipeline.ts reads it back to credit opportunities to the surfaces that found them. Adapters without a notion of query surfaces leave this unset. */
+  foundBySurfaces?: string[];
 };
 
 export type SourceHealth = {
@@ -41,6 +43,8 @@ export type SearchParams = {
   /** Optional attribution for adapters that meter/bill calls (e.g. cost ledger). Adapters that don't meter usage ignore these. */
   campaignId?: string;
   companyId?: string;
+  /** The business's real geography constraint, if any — null/undefined means remote/anywhere. Adapters that support location-aware retrieval use this to decide whether local search angles are a real signal or a guess; adapters without that notion ignore it. */
+  geography?: string | null;
 };
 
 export interface SourceAdapter {

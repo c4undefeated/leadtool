@@ -1,6 +1,7 @@
 import type { NormalizedConversation, RateLimitStatus, SearchParams, SourceAdapter, SourceHealth } from "./types";
 import * as redditapis from "@/lib/providers/redditapis/service";
 import type { RedditapisPost } from "@/lib/providers/redditapis/service";
+import { runDiscovery } from "./searchOrchestrator";
 
 /**
  * Reddit is SourceAdapter #1, backed by Redditapis (api.redditapis.com) — a
@@ -20,6 +21,13 @@ import type { RedditapisPost } from "@/lib/providers/redditapis/service";
  * All provider calls are budgeted, cost-logged, and short-TTL cached
  * through lib/providers/redditapis/service.ts — this file never talks to
  * Redditapis directly.
+ *
+ * Query strategy (broad discovery -> semantic qualification) lives in
+ * ./searchOrchestrator.ts, not here — this adapter's job is just: ask the
+ * orchestrator for discovered posts, apply the one thing that has to happen
+ * per-post regardless of which query found it (the real recency cutoff),
+ * and normalize into NormalizedConversation. See searchOrchestrator.ts for
+ * the retrieval architecture itself.
  */
 export class RedditApisSourceAdapter implements SourceAdapter {
   readonly type = "reddit";
@@ -43,25 +51,12 @@ export class RedditApisSourceAdapter implements SourceAdapter {
   }
 
   async search(params: SearchParams): Promise<NormalizedConversation[]> {
-    const query = buildQuery(params.keywords, params.topics);
-    if (!query) return [];
-
-    const limit = Math.min(params.limit ?? 25, 100);
-    // /api/reddit/search takes at most one subreddit filter. To guarantee
-    // exactly one provider call per scan (cost-aware scheduling), we only
-    // pass a subreddit restriction when the campaign names exactly one
-    // community; zero or multiple communities fall back to an unscoped
+    // /api/reddit/search takes at most one subreddit filter. To keep the
+    // whole batch of queries this scan runs at a predictable, bounded cost,
+    // we only pass a subreddit restriction when the campaign names exactly
+    // one community; zero or multiple communities fall back to an unscoped
     // global search rather than looping per-subreddit.
     const subreddit = params.communities.length === 1 ? params.communities[0] : undefined;
-    // Always newest-first. This used to be "relevance" when unscoped, on
-    // the theory that "newest across all of Reddit" for a common phrase
-    // would get drowned out by unrelated high-traffic communities. Verified
-    // live that the opposite is true in practice: an unscoped relevance
-    // query returned a post from 2015, while an unscoped sort=new query
-    // with the same style of terms returned 100 genuinely fresh posts
-    // spanning dozens of subreddits (including small local ones) — exactly
-    // the "across all subreddits" coverage this adapter is for.
-    const sort = "new";
 
     // Redditapis's own time-window param only takes coarse buckets (hour/
     // day/week/month/year/all) and — per its docs — mainly affects
@@ -72,78 +67,38 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // precision exists — Redditapis doesn't offer it, so we don't pretend
     // to pass it through.
     const maxAgeHours = params.maxAgeHours ?? 24;
-    const t = maxAgeHours <= 24 ? "day" : maxAgeHours <= 168 ? "week" : "month";
+    const t = maxAgeHours <= 24 ? "day" : maxAgeHours <= 168 ? "week" : maxAgeHours <= 720 ? "month" : "all";
 
-    const context = { campaignId: params.campaignId, companyId: params.companyId };
-    const response = await redditapis.searchRedditapis({ q: query, subreddit, sort, t, limit }, context);
+    const discovery = await runDiscovery({
+      campaignId: params.campaignId ?? "",
+      companyId: params.companyId,
+      keywords: params.keywords,
+      topics: params.topics,
+      subreddit,
+      sort: "new",
+      t,
+      hasGeography: Boolean(params.geography && params.geography.trim()),
+      baselineLimit: params.limit ?? 100,
+    });
 
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
-    const recentPosts = response.posts.filter((post) => post.created_utc * 1000 >= cutoff);
+    const recent = discovery.posts.filter((d) => d.post.created_utc * 1000 >= cutoff);
 
-    // Top-of-funnel visibility: how much the provider actually returned
-    // before our own recency cutoff trims it, so a "0 ingested" result
-    // downstream can be told apart from "the provider itself found
-    // nothing" vs. "it found things, they just weren't recent enough."
+    // Top-of-funnel visibility: how many queries ran, what each found raw,
+    // and how many survived the real recency cutoff — so a "0 ingested"
+    // result downstream can be told apart from "discovery found nothing"
+    // vs. "it found things, they just weren't recent enough."
+    const surfaceSummary = discovery.surfacesRun.map((s) => `${s.family}:${s.rawCount}`).join(", ");
     console.log(
-      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: query="${query}" subreddit=${subreddit ?? "(all)"} -> ${response.posts.length} raw post(s) from Redditapis, ${recentPosts.length} within the ${maxAgeHours}h window`,
+      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: ran ${discovery.surfacesRun.length} quer${discovery.surfacesRun.length === 1 ? "y" : "ies"} (${surfaceSummary}) -> ${discovery.posts.length} unique post(s), ${recent.length} within the ${maxAgeHours}h window` +
+        (discovery.errors.length > 0 ? ` (${discovery.errors.length} quer${discovery.errors.length === 1 ? "y" : "ies"} failed: ${discovery.errors.join("; ")})` : ""),
     );
 
-    return recentPosts.map(normalizePost);
+    return recent.map((d) => normalizePost(d.post, d.foundBy));
   }
 }
 
-// Generic, vertical-agnostic buying-intent vocabulary. This is NOT derived
-// from any campaign's configured keywords — it's a fixed list ANDed against
-// a campaign's short topic terms to broaden search beyond requiring one of
-// the campaign's exact, often long, keyword phrases to appear verbatim.
-// Verified live against the real endpoint: a 20-phrase exact "OR" query
-// (all of a real campaign's configured keywords, quoted) returned zero
-// matches in a one-week window; a 4-topic-term query ANDed against a subset
-// of these intent words, same window, returned 100 matches spanning dozens
-// of subreddits. Long, specific sentences are rare in real posts; short
-// nouns + common intent words are not.
-const INTENT_WORDS = ["looking", "need", "recommend", "recommendation", "recommendations", "suggest", "suggestions", "advice", "hire", "considering", "want", "worth"];
-
-// Length itself isn't the real constraint — a 609-character all-quoted
-// query parsed and returned HTTP 200 in live testing — but a generous cap
-// still guards against a pathological case (e.g. a campaign with dozens of
-// keywords) producing something unpredictable.
-const MAX_PHRASE_GROUP_LENGTH = 400;
-
-function buildPhraseGroup(phrases: string[], maxLength: number): string {
-  const parts: string[] = [];
-  let length = 0;
-  for (const phrase of phrases) {
-    const trimmed = phrase.trim();
-    if (!trimmed) continue;
-    const quoted = `"${trimmed.replace(/"/g, "")}"`;
-    const addition = (parts.length === 0 ? "" : " OR ") + quoted;
-    if (length + addition.length > maxLength) break;
-    parts.push(quoted);
-    length += addition.length;
-  }
-  return parts.join(" OR ");
-}
-
-/**
- * Combines two independent query strategies into one call (still exactly
- * one Redditapis request per scan): a broad group — short campaign-defined
- * topic terms ANDed against a fixed intent-word list, for wide recall
- * across all of Reddit — and a precise group — the campaign's own full
- * keyword phrases, quoted and OR'd, for exact matches. Either group can be
- * empty (e.g. a campaign with no topic terms configured yet falls back to
- * exactly the precise-only behavior this adapter always had).
- */
-function buildQuery(keywords: string[], topics: string[]): string {
-  const topicGroup = buildPhraseGroup(topics, MAX_PHRASE_GROUP_LENGTH);
-  const broad = topicGroup ? `(${topicGroup}) AND (${INTENT_WORDS.join(" OR ")})` : "";
-  const precise = buildPhraseGroup(keywords, MAX_PHRASE_GROUP_LENGTH);
-
-  if (broad && precise) return `(${broad}) OR (${precise})`;
-  return broad || precise;
-}
-
-function normalizePost(post: RedditapisPost): NormalizedConversation {
+function normalizePost(post: RedditapisPost, foundBy: string[]): NormalizedConversation {
   const permalink = post.permalink
     ? post.permalink.startsWith("http")
       ? post.permalink
@@ -159,6 +114,7 @@ function normalizePost(post: RedditapisPost): NormalizedConversation {
     url: permalink,
     community: post.subreddit ? `r/${post.subreddit}` : null,
     postedAt: new Date(post.created_utc * 1000),
+    foundBySurfaces: foundBy,
     metadata: {
       redditapisId: post.id,
       redditapisName: post.name,
