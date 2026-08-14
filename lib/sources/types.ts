@@ -17,8 +17,8 @@ export type NormalizedConversation = {
   postedAt: Date;
   /** Opaque, source-specific extras. Analysis and UI code must never read this. */
   metadata?: Record<string, unknown>;
-  /** SearchSurface ids (or "baseline") whose query returned this post — first-class, not opaque metadata, because pipeline.ts reads it back to credit opportunities to the surfaces that found them. Adapters without a notion of query surfaces leave this unset. */
-  foundBySurfaces?: string[];
+  /** DiscoveryTerm ids (or "precision") whose query returned this post — first-class, not opaque metadata, because pipeline.ts reads it back to credit opportunities to the terms that found them. Adapters without a notion of discovery terms leave this unset. */
+  foundByTerms?: string[];
 };
 
 export type SourceHealth = {

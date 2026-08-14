@@ -42,8 +42,26 @@ export const INTENT_CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-/** Discovery-angle labels — see lib/sources/searchOrchestrator.ts's SEARCH_SURFACE_FAMILIES. "baseline" isn't a generated family; it's the campaign's own configured keywords/topics, always-on. */
-export const SEARCH_FAMILY_LABELS: Record<string, string> = {
+/** Discovery-term category labels — see lib/ai/schemas.ts's DISCOVERY_TERM_CATEGORIES. "precision" isn't a generated category; it's the campaign's own configured keywords/topics, always-on. */
+export const DISCOVERY_CATEGORY_LABELS: Record<string, string> = {
+  precision: "Your keywords/topics",
+  service: "Service",
+  problem: "Problem",
+  outcome: "Outcome",
+  task: "Task",
+  tool: "Tool",
+  alternative: "Alternative",
+  frustration: "Frustration",
+  beginner_language: "Beginner language",
+  advanced_language: "Advanced language",
+  decision_language: "Decision language",
+  recommendation_language: "Recommendation language",
+  adjacent_concept: "Adjacent concept",
+  other: "Other",
+};
+
+/** Legacy labels for the retired family-bundle rotation system — kept only so conversations ingested before DiscoveryTerm shipped still resolve their original "discovered through" provenance via Conversation.foundBySurfaces. Never used for new data. */
+export const LEGACY_SEARCH_FAMILY_LABELS: Record<string, string> = {
   baseline: "Your keywords/topics",
   buyer_request: "Buyer request",
   provider_search: "Provider search",

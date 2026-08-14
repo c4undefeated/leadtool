@@ -77,7 +77,6 @@ export class RedditApisSourceAdapter implements SourceAdapter {
       subreddit,
       sort: "new",
       t,
-      hasGeography: Boolean(params.geography && params.geography.trim()),
       baselineLimit: params.limit ?? 100,
       maxAgeHours,
       scanRunId: params.scanRunId,
@@ -86,13 +85,14 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
     const recent = discovery.posts.filter((d) => d.post.created_utc * 1000 >= cutoff);
 
-    // Top-of-funnel visibility: how many queries ran, what each found raw,
-    // and how many survived the real recency cutoff — so a "0 ingested"
-    // result downstream can be told apart from "discovery found nothing"
-    // vs. "it found things, they just weren't recent enough."
-    const surfaceSummary = discovery.surfacesRun.map((s) => `${s.family}:${s.rawCount}`).join(", ");
+    // Top-of-funnel visibility: how many queries ran (precision + rotated
+    // discovery batches), what each found raw, and how many survived the
+    // real recency cutoff — so a "0 ingested" result downstream can be told
+    // apart from "discovery found nothing" vs. "it found things, they just
+    // weren't recent enough."
+    const batchSummary = discovery.batchesRun.map((b) => `${b.kind}${b.kind === "discovery" ? `(${b.termCount} terms)` : ""}:${b.rawCount}`).join(", ");
     console.log(
-      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: ran ${discovery.surfacesRun.length} quer${discovery.surfacesRun.length === 1 ? "y" : "ies"} (${surfaceSummary}) -> ${discovery.posts.length} unique post(s), ${recent.length} within the ${maxAgeHours}h window` +
+      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: ran ${discovery.batchesRun.length} quer${discovery.batchesRun.length === 1 ? "y" : "ies"} covering ${discovery.discoveryTermsUsed} discovery term(s) (${batchSummary}) -> ${discovery.posts.length} unique post(s), ${recent.length} within the ${maxAgeHours}h window` +
         (discovery.errors.length > 0 ? ` (${discovery.errors.length} quer${discovery.errors.length === 1 ? "y" : "ies"} failed: ${discovery.errors.join("; ")})` : ""),
     );
 
@@ -116,7 +116,7 @@ function normalizePost(post: RedditapisPost, foundBy: string[]): NormalizedConve
     url: permalink,
     community: post.subreddit ? `r/${post.subreddit}` : null,
     postedAt: new Date(post.created_utc * 1000),
-    foundBySurfaces: foundBy,
+    foundByTerms: foundBy,
     metadata: {
       redditapisId: post.id,
       redditapisName: post.name,
