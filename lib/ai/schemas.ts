@@ -198,14 +198,28 @@ export const discoveryTermResultSchema = z.object({
 
 export type DiscoveryTermResult = z.infer<typeof discoveryTermResultSchema>;
 
-/** Business offer -> a large pool of individual discovery concepts. Generated lazily per campaign, then persisted and rotated — see lib/sources/searchOrchestrator.ts. */
+/**
+ * Business offer -> a large pool of individual discovery concepts.
+ * Generated lazily per campaign, then persisted and rotated — see
+ * lib/sources/searchOrchestrator.ts.
+ *
+ * Deliberately no minItems/maxItems on the array itself: live-testing
+ * against the real Gemini structured-output endpoint found that any
+ * maxItems above 63 on this array causes a hard 400 INVALID_ARGUMENT,
+ * regardless of whether it's expressed as a string or number — a real API
+ * constraint, not a formatting mistake (confirmed by binary search: 63
+ * succeeds, 64 fails). The actual target count is instead carried entirely
+ * by the prompt's own "aim for ~N concepts" instruction (see
+ * lib/ai/discovery.ts) and enforced client-side as a generous upper bound
+ * by discoveryTermResultSchema's zod .max(300) after the response comes
+ * back — that check has no such ceiling because it's just an array length
+ * comparison, not a schema the model has to satisfy while generating.
+ */
 export const discoveryTermResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     terms: {
       type: Type.ARRAY,
-      minItems: "1",
-      maxItems: "300",
       items: {
         type: Type.OBJECT,
         properties: {
