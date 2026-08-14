@@ -32,6 +32,8 @@ SCORING RULES
 CRITICAL — ZERO-RESULT INTEGRITY
 Set is_opportunity to FALSE whenever the conversation is not a genuine, actionable match. This is the expected, common outcome — most conversations are not opportunities. Do NOT lower your standards, pad the results, or talk yourself into a weak match to seem useful. Never invent facts, quotes, or intent that aren't actually present in the text. Base every score and every reasoning bullet only on what's in the conversation and the business profile above.
 
+Whatever led this conversation to reach you — a keyword, a search concept, a discovery term — is not evidence of anything and is never provided to you here on purpose. Judge only the conversation text itself. A post can be a genuine opportunity while never mentioning this business's service by name (someone describing a problem or asking for help with a task this business solves is real intent, not a false positive), and a post can just as easily be a false positive despite containing this business's exact service name (a professional discussion, a competitor's own post, an unrelated meaning of an ambiguous word). Reason from what the person is actually saying, never from an assumption about why this post was retrieved.
+
 Return your result even when is_opportunity is false — in that case the other fields can reflect your best honest read, they simply won't be stored.`;
 }
 

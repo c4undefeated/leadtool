@@ -1,10 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { defaultSourceType } from "@/lib/sourceAvailability";
+import { ensureDiscoveryTerms } from "@/lib/sources/searchOrchestrator";
 
 export type OnboardingFormState = { error?: string } | undefined;
 
@@ -65,22 +67,38 @@ export async function completeOnboardingAction(
 
   const existingCampaign = await prisma.campaign.findFirst({ where: { companyId: user.companyId } });
   let campaignId = existingCampaign?.id;
+  let isNewCampaign = false;
 
   if (!existingCampaign) {
+    // Vertical templates used to also seed a handful of literal
+    // "looking for a coach"-style keyword phrases here — the exact old
+    // exact-keyword-monitoring pattern the discovery engine replaced.
+    // Subreddit suggestions are a different, orthogonal concern (WHERE to
+    // look, not HOW to phrase a search) and stay useful as a starter set;
+    // keyword phrases don't, now that discovery generation (triggered
+    // below) does the real work immediately.
     const campaign = await prisma.campaign.create({
       data: {
         companyId: user.companyId,
         name: `${template.label} — first campaign`,
         sourceType: defaultSourceType(),
-        keywords: {
-          create: [
-            ...template.seedKeywords.map((term) => ({ term, type: "keyword" })),
-            ...template.seedSubreddits.map((term) => ({ term, type: "subreddit" })),
-          ],
-        },
+        keywords: { create: template.seedSubreddits.map((term) => ({ term, type: "subreddit" })) },
       },
     });
     campaignId = campaign.id;
+    isNewCampaign = true;
+  }
+
+  // Generate the discovery profile right away rather than waiting for a
+  // scan to trigger it lazily, so both onboarding paths (website-prefilled
+  // or fully manual — both only ever produce this same Offer row) land on
+  // a campaign page that's already "thinking," not an empty one asking for
+  // a manual click first. Scheduled via after() so the ~20s Gemini call
+  // doesn't block this redirect; the campaign page's existing "no concepts
+  // generated yet" state covers the brief window before it finishes.
+  if (isNewCampaign && campaignId) {
+    const idForAfter = campaignId;
+    after(() => ensureDiscoveryTerms(idForAfter).catch((err) => console.error(`[completeOnboardingAction] discovery generation failed for campaign ${idForAfter}:`, err)));
   }
 
   redirect(`/campaigns/${campaignId}`);

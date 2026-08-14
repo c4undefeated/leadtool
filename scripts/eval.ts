@@ -11,7 +11,7 @@
  */
 import { analyzeConversation } from "@/lib/ai/analysis";
 import { AiNotConfiguredError } from "@/lib/ai/client";
-import { EVAL_CASES } from "./fixtures/conversations";
+import { EVAL_CASES, LITERAL_SERVICE_TERMS } from "./fixtures/conversations";
 import { EVAL_OFFER } from "./fixtures/offer";
 
 async function main() {
@@ -23,8 +23,27 @@ async function main() {
 
   for (const testCase of EVAL_CASES) {
     process.stdout.write(`  ${testCase.id.padEnd(28)} `);
+
+    // Fixture-integrity guard for "indirect-need" cases specifically: the
+    // whole point of this category is proving Gemini can find genuine
+    // intent with ZERO literal overlap with the business's own service
+    // vocabulary. If a future edit accidentally reintroduces one of those
+    // words into the fixture text, the case would silently stop testing
+    // what it claims to test — catch that before even calling Gemini.
+    if (testCase.category === "indirect-need") {
+      const text = `${testCase.conversation.title ?? ""} ${testCase.conversation.originalText}`.toLowerCase();
+      const leaked = LITERAL_SERVICE_TERMS.filter((term) => text.includes(term));
+      if (leaked.length > 0) {
+        fail += 1;
+        const msg = `${testCase.id}: fixture text contains literal service term(s) [${leaked.join(", ")}] — this defeats the point of the indirect-need category`;
+        failures.push(msg);
+        console.log(`FAIL  fixture leaks literal term(s): ${leaked.join(", ")}`);
+        continue;
+      }
+    }
+
     try {
-      const result = await analyzeConversation(testCase.conversation, EVAL_OFFER);
+      const result = await analyzeConversation(testCase.conversation, testCase.offer ?? EVAL_OFFER);
       const gotOpportunity = result !== null;
 
       let ok = gotOpportunity === testCase.expectOpportunity;

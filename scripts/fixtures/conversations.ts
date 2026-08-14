@@ -1,7 +1,11 @@
+import type { Offer } from "@prisma/client";
 import type { NormalizedConversation } from "@/lib/sources/types";
+import { INDIRECT_NEED_OFFER } from "./offer";
 
 export type EvalCase = {
   id: string;
+  /** Defaults to EVAL_OFFER when unset. Override when a case needs a specific ICP to test what it claims to test (see indirect-need-1/2 and INDIRECT_NEED_OFFER). */
+  offer?: Offer;
   category:
     | "high-intent"
     | "low-intent"
@@ -12,7 +16,8 @@ export type EvalCase = {
     | "prohibited-promotion"
     | "stale"
     | "false-positive-risk"
-    | "should-return-zero";
+    | "should-return-zero"
+    | "indirect-need";
   conversation: NormalizedConversation;
   expectOpportunity: boolean;
   /** Optional: assert the safety_label lands in this set, when relevant. */
@@ -23,6 +28,17 @@ export type EvalCase = {
 function daysAgo(n: number): Date {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 }
+
+/**
+ * The literal service vocabulary an exact-keyword search engine would rely
+ * on for EVAL_OFFER (scripts/fixtures/offer.ts). "indirect-need" fixtures
+ * below must never contain any of these — that absence is the whole point:
+ * proving a post can become a genuine opportunity through the language of
+ * the problem alone, with zero literal overlap with what the business
+ * calls itself. eval.ts asserts this against the fixture text directly, so
+ * this list guards the fixtures' own integrity, not just Gemini's read.
+ */
+export const LITERAL_SERVICE_TERMS = ["personal trainer", "coach", "coaching", "trainer"];
 
 export const EVAL_CASES: EvalCase[] = [
   {
@@ -189,6 +205,44 @@ export const EVAL_CASES: EvalCase[] = [
       originalText: "Visiting Chicago next week, where should I get pizza?",
       url: "https://example.com/eval/should-return-zero-1",
       community: "r/Chicago",
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "indirect-need-1",
+    category: "indirect-need",
+    offer: INDIRECT_NEED_OFFER,
+    expectOpportunity: true,
+    notes:
+      "The mandatory regression case: a genuine, actionable need for structured programming, expressed entirely in problem/tool language — never names the service. An exact-keyword search for \"personal trainer\"/\"coach\" would never retrieve this post at all; Gemini must recognize the need from the problem itself.",
+    conversation: {
+      source: "manual",
+      sourceId: null,
+      authorRef: "u/newlifter22",
+      title: "New to the gym, need help with a workout plan",
+      originalText:
+        "hi, i'm new to the gym and some workout plans are needed. i don't know anything about making workout plans and if the workout plans that chat gpt gave me are good, i would prefer an app to do it for me.",
+      url: "https://example.com/eval/indirect-need-1",
+      community: "r/Fitness",
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "indirect-need-2",
+    category: "indirect-need",
+    offer: INDIRECT_NEED_OFFER,
+    expectOpportunity: true,
+    notes:
+      "Same principle, different shape: a stalled-progress complaint with no explicit ask and no service vocabulary at all — tests that intent can be inferred from a stated problem plus prior failed self-attempts, not just a direct question.",
+    conversation: {
+      source: "manual",
+      sourceId: null,
+      authorRef: "u/stuck_six_months",
+      title: "Been lifting 6 months, can't gain any muscle",
+      originalText:
+        "Been going consistently for six months now, eating in a surplus, tracking everything, and I genuinely haven't gained any muscle. I've switched my program twice already and nothing changes. Starting to think I'm doing something fundamentally wrong but I don't know what.",
+      url: "https://example.com/eval/indirect-need-2",
+      community: "r/Fitness",
       postedAt: daysAgo(0),
     },
   },

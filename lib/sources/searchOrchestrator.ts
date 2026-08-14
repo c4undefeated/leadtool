@@ -240,8 +240,16 @@ async function regenerateDiscoveryTerms(campaignId: string, offer: Offer): Promi
  * or the current pool predates this deployment's DISCOVERY_PROMPT_VERSION.
  * NOT regenerated on every scan otherwise — Gemini generation is a real
  * cost, not something to pay repeatedly for an unchanged business.
+ *
+ * Called from two places: lazily, inside runDiscovery(), so a scan never
+ * runs against a stale/missing pool; and eagerly, right after
+ * completeOnboardingAction creates a campaign+offer (via Next's after()),
+ * so the discovery profile is already populated by the time a brand-new
+ * user reaches the campaign page — for both the website and no-website
+ * onboarding path equally, since both only ever produce the same Offer
+ * row this function reads.
  */
-async function ensureDiscoveryTerms(campaignId: string): Promise<void> {
+export async function ensureDiscoveryTerms(campaignId: string): Promise<void> {
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     include: { company: { include: { offer: true } } },
