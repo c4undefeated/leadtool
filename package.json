@@ -16,6 +16,7 @@
     "db:push": "prisma db push",
     "eval": "tsx scripts/eval.ts",
     "test:junk-filter": "tsx scripts/testJunkFilter.ts",
+    "test:search-orchestrator": "tsx scripts/testSearchOrchestrator.ts",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

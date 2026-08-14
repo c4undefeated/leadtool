@@ -45,6 +45,8 @@ export type SearchParams = {
   companyId?: string;
   /** The business's real geography constraint, if any — null/undefined means remote/anywhere. Adapters that support location-aware retrieval use this to decide whether local search angles are a real signal or a guess; adapters without that notion ignore it. */
   geography?: string | null;
+  /** The ScanRun row this search belongs to, if the caller is tracking per-scan metrics history. Adapters that support query-level observability write SearchSurfaceRun rows tagged with this; adapters without that notion ignore it. */
+  scanRunId?: string;
 };
 
 export interface SourceAdapter {

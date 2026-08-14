@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS } from "@/lib/format";
+import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS, SEARCH_FAMILY_LABELS } from "@/lib/format";
 import { EngagementPanel } from "@/components/EngagementPanel";
 import { StatusControl } from "@/components/StatusControl";
 
@@ -39,6 +39,22 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   const dmComposeUrl = redditUsername
     ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(redditUsername)}`
     : null;
+
+  // Provenance (spec section 48) — which discovery angle(s) actually found
+  // this conversation, not just "Scout found it somehow." Real data written
+  // at ingestion time (lib/pipeline.ts), not reconstructed after the fact.
+  let discoveredThrough: string[] = [];
+  if (conversation.foundBySurfaces) {
+    try {
+      const ids: string[] = JSON.parse(conversation.foundBySurfaces);
+      const realIds = ids.filter((id) => id !== "baseline");
+      const surfaces = realIds.length > 0 ? await prisma.searchSurface.findMany({ where: { id: { in: realIds } } }) : [];
+      const families = new Set(ids.map((id) => (id === "baseline" ? "baseline" : (surfaces.find((s) => s.id === id)?.family ?? null))).filter((f): f is string => Boolean(f)));
+      discoveredThrough = Array.from(families).map((f) => SEARCH_FAMILY_LABELS[f] ?? f);
+    } catch {
+      discoveredThrough = [];
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -95,6 +111,16 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
           <span className="font-medium text-caution">Safety: </span>
           {opportunity.safetyReason}
         </p>
+        {discoveredThrough.length > 0 && (
+          <div className="text-xs text-muted border-t border-line pt-3 mt-3 flex flex-wrap items-center gap-2">
+            <span className="font-medium text-ink">Discovered through:</span>
+            {discoveredThrough.map((label) => (
+              <span key={label} className="pill pill-neutral">
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ORIGINAL CONVERSATION */}

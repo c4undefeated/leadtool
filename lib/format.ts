@@ -42,6 +42,26 @@ export const INTENT_CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+/** Discovery-angle labels — see lib/sources/searchOrchestrator.ts's SEARCH_SURFACE_FAMILIES. "baseline" isn't a generated family; it's the campaign's own configured keywords/topics, always-on. */
+export const SEARCH_FAMILY_LABELS: Record<string, string> = {
+  baseline: "Your keywords/topics",
+  buyer_request: "Buyer request",
+  provider_search: "Provider search",
+  recommendation: "Recommendation",
+  problem: "Problem",
+  solution: "Solution",
+  goal: "Goal",
+  planning: "Planning",
+  comparison: "Comparison",
+  alternative: "Alternative",
+  troubleshooting: "Troubleshooting",
+  dissatisfaction: "Dissatisfaction",
+  urgency: "Urgency",
+  beginner_confusion: "Beginner confusion",
+  domain_topic: "Topic",
+  local: "Local",
+};
+
 export const SOURCE_LABELS: Record<string, string> = {
   reddit: "Reddit",
   twitter: "X/Twitter",

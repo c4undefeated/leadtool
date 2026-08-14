@@ -9,7 +9,7 @@ import {
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
 import { isAiConfigured } from "@/lib/sourceAvailability";
-import { scanDisabledReason, sourceLabel } from "@/lib/format";
+import { scanDisabledReason, sourceLabel, SEARCH_FAMILY_LABELS, relativeTime } from "@/lib/format";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -31,6 +31,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       keywords: true,
       _count: { select: { conversations: true } },
       company: { include: { offer: true } },
+      searchSurfaces: { orderBy: [{ opportunitiesFound: "desc" }, { timesRun: "desc" }] },
     },
   });
   if (!campaign) notFound();
@@ -210,6 +211,51 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </button>
         </form>
       </section>
+
+      {campaign.searchSurfaces.length > 0 && (
+        <section className="rounded-lg border border-line bg-surface p-5">
+          <h2 className="font-medium text-sm mb-1">Discovery angles</h2>
+          <p className="text-sm text-muted mb-4">
+            Your keywords and topics above are seeds, not the whole search. Each scan also rotates through a
+            pool of AI-generated angles below — different ways someone in need might actually phrase a post —
+            to widen coverage without you having to think of every angle yourself. Angles that keep finding
+            real opportunities get prioritized over ones that don't.
+          </p>
+          <div className="flex flex-col gap-2">
+            {campaign.searchSurfaces.map((s) => {
+              const phrases: string[] = (() => {
+                try {
+                  const parsed = JSON.parse(s.phrases);
+                  return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : [];
+                } catch {
+                  return [];
+                }
+              })();
+              return (
+                <div key={s.id} className="rounded-md border border-line px-3 py-2 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                    <span className="font-medium">{SEARCH_FAMILY_LABELS[s.family] ?? s.family}</span>
+                    <span className="text-xs font-mono text-muted">
+                      {s.timesRun === 0
+                        ? "not run yet"
+                        : `run ${s.timesRun}× · last ${relativeTime(s.lastRunAt!)}`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted mb-1">
+                    {phrases.length > 0 ? phrases.join(" · ") : "no phrases generated"}
+                  </p>
+                  <p className="text-xs font-mono text-muted">
+                    <span className="text-ink">{s.conversationsFound}</span> conversation
+                    {s.conversationsFound === 1 ? "" : "s"} found ·{" "}
+                    <span className="text-ink">{s.opportunitiesFound}</span> opportunit
+                    {s.opportunitiesFound === 1 ? "y" : "ies"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-1">Manual import — validation track</h2>
