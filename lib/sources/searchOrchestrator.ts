@@ -61,7 +61,7 @@ export function buildBaselineQuery(keywords: string[], topics: string[]): string
   return broad || precise;
 }
 
-function buildSurfaceQuery(family: string, phrases: string[]): string {
+export function buildSurfaceQuery(family: string, phrases: string[]): string {
   const group = buildPhraseGroup(phrases, MAX_PHRASE_GROUP_LENGTH);
   if (!group) return "";
   if (family === "domain_topic") return `(${group}) AND (${INTENT_WORDS.join(" OR ")})`;
@@ -111,7 +111,7 @@ type RankedSurface = { surface: SearchSurface; phrases: string[]; score: number 
  *   ones fade, without ever fully zeroing out (base+exploration keep even a
  *   0-yield surface eligible again eventually).
  */
-function rankSurfaces(surfaces: SearchSurface[], hasGeography: boolean): RankedSurface[] {
+export function rankSurfaces(surfaces: SearchSurface[], hasGeography: boolean): RankedSurface[] {
   const now = Date.now();
   return surfaces
     .map((s) => {
@@ -146,18 +146,23 @@ function rankSurfaces(surfaces: SearchSurface[], hasGeography: boolean): RankedS
     .sort((a, b) => b.score - a.score);
 }
 
-const MAX_ADDITIONAL_SURFACES_PER_SCAN = 4;
+const MAX_ADDITIONAL_SURFACES_PER_SCAN = Number(process.env.MAX_ADDITIONAL_SURFACES_PER_SCAN) || 4;
 // Smaller than the old single-query limit (100) on purpose — with several
 // queries running per scan instead of one, each can request less while
 // total useful volume still goes up. Keeps the raw-post ceiling, and
 // therefore downstream Gemini analysis volume, bounded for the serverless
 // function's execution window.
-const SURFACE_FETCH_LIMIT = 25;
-// Modest on purpose (section 22: avoid provider stampedes) — a handful of
-// calls a few seconds apart is plenty; high concurrency here buys nothing
-// since each call is already fast, and low concurrency keeps the shared
-// budget check honest against races.
-const SURFACE_QUERY_CONCURRENCY = 2;
+const SURFACE_FETCH_LIMIT = Number(process.env.SURFACE_FETCH_LIMIT) || 25;
+// Deliberately independent from ANALYSIS_CONCURRENCY (lib/pipeline.ts) —
+// search concurrency and AI concurrency are bounded by completely different
+// constraints (provider stampede risk + shared budget-check races here, vs.
+// Gemini throughput + serverless timeout there) and must not be tied
+// together. Modest on purpose (section 22: avoid provider stampedes) — a
+// handful of calls a few seconds apart is plenty; high concurrency here
+// buys nothing since each call is already fast, and low concurrency keeps
+// the shared budget check honest against races. Configurable for the same
+// reason ANALYSIS_CONCURRENCY is — "safe" is a deployment-specific answer.
+const SURFACE_QUERY_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 2;
 
 export type DiscoveryParams = {
   campaignId: string;
@@ -170,6 +175,10 @@ export type DiscoveryParams = {
   hasGeography: boolean;
   /** Fetch limit for the baseline query specifically — the caller-configured "one big call" limit, unchanged in meaning from before this module existed. Rotated surfaces use their own smaller SURFACE_FETCH_LIMIT regardless, since they're a new addition the caller never configured. */
   baselineLimit: number;
+  /** Only used here to compute per-surface keptCount for SearchSurfaceRun rows — the real recency filter that actually governs what reaches ingestion still lives in redditApisAdapter.ts, applied once to the final deduped set. Duplicating the cutoff math here is purely for the metrics record, not a second enforcement point. */
+  maxAgeHours: number;
+  /** ScanRun to attach SearchSurfaceRun history to — optional so a caller not tracking scan-level metrics doesn't need to create one first. */
+  scanRunId?: string;
 };
 
 export type DiscoveredPost = { post: RedditapisPost; foundBy: string[] };
@@ -238,9 +247,20 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   const errors: string[] = [];
   const surfaceRawCounts = new Map<string, number>(); // surfaceId -> raw hits, for stats
   const succeededSurfaceIds = new Set<string>(); // only surfaces that actually executed get their rotation stats touched
+  const runRows: {
+    searchSurfaceId: string | null;
+    family: string;
+    query: string;
+    rawCount: number;
+    keptCount: number;
+    cacheHit: boolean;
+    success: boolean;
+    errorMessage: string | null;
+  }[] = [];
 
   let budgetExhausted = false;
   const context = { campaignId: params.campaignId, companyId: params.companyId };
+  const cutoffMs = Date.now() - params.maxAgeHours * 60 * 60 * 1000;
 
   await mapWithConcurrency(jobs, SURFACE_QUERY_CONCURRENCY, async (job) => {
     if (budgetExhausted) return; // skip remaining queued jobs once we know further calls will just fail the same check
@@ -255,7 +275,9 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
         succeededSurfaceIds.add(job.surfaceId);
       }
 
+      let keptCount = 0;
       for (const post of response.posts) {
+        if (post.created_utc * 1000 >= cutoffMs) keptCount += 1;
         const id = post.name || post.id;
         const label = job.surfaceId ?? "baseline";
         const existing = byId.get(id);
@@ -265,13 +287,62 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
           byId.set(id, { post, foundBy: [label] });
         }
       }
+
+      // Best-effort cache-hit lookup — reads back the ledger row this exact
+      // call just wrote (lib/providers/redditapis/service.ts), the same
+      // pattern lib/pipeline.ts already uses for its own cacheHit field.
+      // Deliberately doesn't touch service.ts's own write path, so this
+      // observability addition carries zero risk to budget/ledger
+      // correctness — worst case here is a mis-attributed cacheHit flag on
+      // a metrics row, never a wrong charge.
+      let cacheHit = false;
+      try {
+        const lastUsage = await prisma.providerUsageEvent.findFirst({
+          where: { campaignId: params.campaignId },
+          orderBy: { createdAt: "desc" },
+        });
+        cacheHit = lastUsage?.cacheHit ?? false;
+      } catch {
+        // metrics-only lookup — never worth failing the scan over
+      }
+
+      runRows.push({
+        searchSurfaceId: job.surfaceId,
+        family: job.family,
+        query: job.query,
+        rawCount: response.posts.length,
+        keptCount,
+        cacheHit,
+        success: true,
+        errorMessage: null,
+      });
     } catch (err) {
       if (err instanceof RedditapisBudgetExceededError) budgetExhausted = true;
       const message = err instanceof Error ? err.message : "Unknown error.";
       console.error(`[searchOrchestrator] surface "${job.family}" failed for campaign ${params.campaignId}:`, err);
       errors.push(`${job.family}: ${message}`);
+      runRows.push({
+        searchSurfaceId: job.surfaceId,
+        family: job.family,
+        query: job.query,
+        rawCount: 0,
+        keptCount: 0,
+        cacheHit: false,
+        success: false,
+        errorMessage: message,
+      });
     }
   });
+
+  if (params.scanRunId && runRows.length > 0) {
+    try {
+      await prisma.searchSurfaceRun.createMany({
+        data: runRows.map((r) => ({ scanRunId: params.scanRunId!, ...r })),
+      });
+    } catch (err) {
+      console.error(`[searchOrchestrator] failed to persist SearchSurfaceRun rows for campaign ${params.campaignId}:`, err);
+    }
+  }
 
   // Stats update — only for surfaces whose query actually executed. A
   // surface that failed or got skipped (e.g. budget ran out before its

@@ -150,25 +150,44 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
   const result = await analyzeConversation(nc, offer);
   if (!result) return null;
 
-  const opportunity = await prisma.opportunity.create({
-    data: {
-      conversationId: conversation.id,
-      intentScore: result.intent_score,
-      fitScore: result.fit_score,
-      matchScore: result.match_score,
-      confidence: result.confidence,
-      detectedNeed: result.detected_need,
-      whyNow: result.why_now,
-      reasoning: JSON.stringify(result.reasoning),
-      safetyLabel: result.safety_label,
-      safetyReason: result.safety_reason,
-      recommendedAction: result.recommended_action,
-      intentCategory: result.intent_category,
-      priorityTier: priorityTierFromMatchScore(result.match_score),
-      promptVersion: ANALYSIS_PROMPT_VERSION,
-      activity: { create: { event: "surfaced", note: "Scout identified this as a genuine opportunity." } },
-    },
-  });
+  // conversationId is @unique on Opportunity, so the DB is the real backstop
+  // — but the check-then-act above (findUnique, then this create, with a
+  // slow Gemini call in between) isn't atomic. Multiple query surfaces can
+  // discover the same post, and Conversation is deduped GLOBALLY (not per
+  // campaign — @@unique([source, sourceId])), so two different campaigns'
+  // scans (or an overlapping cron + manual click) can both reach this
+  // function for the same conversationId before either has created the
+  // Opportunity. That's a benign race, not a real error: catch it
+  // specifically (Prisma P2002) and resolve to whichever row actually won,
+  // exactly like ingestOne() already does for Conversation creation above.
+  let opportunity;
+  try {
+    opportunity = await prisma.opportunity.create({
+      data: {
+        conversationId: conversation.id,
+        intentScore: result.intent_score,
+        fitScore: result.fit_score,
+        matchScore: result.match_score,
+        confidence: result.confidence,
+        detectedNeed: result.detected_need,
+        whyNow: result.why_now,
+        reasoning: JSON.stringify(result.reasoning),
+        safetyLabel: result.safety_label,
+        safetyReason: result.safety_reason,
+        recommendedAction: result.recommended_action,
+        intentCategory: result.intent_category,
+        priorityTier: priorityTierFromMatchScore(result.match_score),
+        promptVersion: ANALYSIS_PROMPT_VERSION,
+        activity: { create: { event: "surfaced", note: "Scout identified this as a genuine opportunity." } },
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const existing = await prisma.opportunity.findUnique({ where: { conversationId: conversation.id } });
+      if (existing) return existing;
+    }
+    throw err;
+  }
 
   // Exploitation half of rotation: whichever discovery angle(s) actually
   // found this post get credit now that it's a confirmed genuine
@@ -241,6 +260,15 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     .filter((k) => k.type === "subreddit")
     .map((k) => k.term);
 
+  // Durable per-scan history — the answer to "why is IntentScout producing
+  // fewer leads" needs real numbers over time, not just the ephemeral
+  // console.log lines and the five lastScan* fields on Campaign (which only
+  // ever remember the most recent scan). Created before the search call so
+  // its id can be threaded through to the orchestrator, which writes
+  // SearchSurfaceRun rows against it as each query executes.
+  const scanStartedAt = new Date();
+  const scanRun = await prisma.scanRun.create({ data: { campaignId: campaign.id, startedAt: scanStartedAt } });
+
   let conversations: NormalizedConversation[] = [];
   try {
     conversations = await adapter.search({
@@ -252,6 +280,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       campaignId: campaign.id,
       companyId: campaign.companyId,
       geography: offer.geography,
+      scanRunId: scanRun.id,
     });
     console.log(`[runScanForCampaign] campaign ${campaign.id}: ${conversations.length} raw conversation(s) to ingest`);
 
@@ -277,6 +306,12 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     const message = err instanceof Error ? err.message : "Unknown ingestion error.";
     console.error(`[runScanForCampaign] search failed for campaign ${campaign.id} (${campaign.sourceType}):`, err);
     result.errors.push(message);
+    await prisma.scanRun
+      .update({
+        where: { id: scanRun.id },
+        data: { durationMs: Date.now() - scanStartedAt.getTime(), providerErrors: 1 },
+      })
+      .catch(() => {}); // metrics-only — never let this mask the real search failure above
     return result;
   }
 
@@ -335,8 +370,14 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   // previously showed up as the whole scan failing partway with no useful
   // error, just a dead connection. Raised alongside the analysis cap above
   // when multi-surface retrieval roughly doubled the realistic ceiling on
-  // new posts per scan.
-  const ANALYSIS_CONCURRENCY = 15;
+  // new posts per scan. 15 (not the more conservative 5-10 that'd be a
+  // reasonable default elsewhere) is deliberate for THIS deployment: Gemini
+  // calls are I/O-bound so concurrency is nearly free, and the real
+  // constraint driving the number up is Vercel's 60s serverless timeout,
+  // not provider rate limits. Configurable because "safe" depends on the
+  // actual deployment target, which this codebase can't know for itself.
+  const ANALYSIS_CONCURRENCY = Number(process.env.ANALYSIS_CONCURRENCY) || 15;
+  let aiErrorCount = 0;
   await mapWithConcurrency(toAnalyze, ANALYSIS_CONCURRENCY, async (conversationId) => {
     try {
       const opportunity = await runAnalysisForConversation(conversationId, offer);
@@ -345,12 +386,46 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       const message = err instanceof Error ? err.message : "Unknown error while analyzing a conversation.";
       console.error(`[runScanForCampaign] analysis failed for conversation ${conversationId} (campaign ${campaign.id}):`, err);
       result.errors.push(message);
+      aiErrorCount += 1;
     }
   });
 
   console.log(
     `[runScanForCampaign] campaign ${campaign.id} summary: ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
   );
+
+  // Finalize the ScanRun row created before the search call — aggregated
+  // from SearchSurfaceRun rows the orchestrator already wrote (raw counts,
+  // provider call/error/cache-hit counts) plus a real spend lookup, so
+  // "why is IntentScout producing fewer leads" can eventually be answered
+  // from durable history instead of guessed at from a single console.log.
+  // Best-effort: never let an observability write fail the scan itself.
+  try {
+    const surfaceRuns = await prisma.searchSurfaceRun.findMany({ where: { scanRunId: scanRun.id } });
+    const spend = await prisma.providerUsageEvent.aggregate({
+      where: { campaignId: campaign.id, createdAt: { gte: scanStartedAt } },
+      _sum: { unitCostUsd: true },
+    });
+    await prisma.scanRun.update({
+      where: { id: scanRun.id },
+      data: {
+        durationMs: Date.now() - scanStartedAt.getTime(),
+        rawProviderResults: surfaceRuns.reduce((sum, r) => sum + r.rawCount, 0),
+        uniqueConversations: conversations.length,
+        skippedJunk: result.skippedJunk,
+        skippedDuplicates: result.skippedDuplicates,
+        aiAnalyzedCount: toAnalyze.length,
+        opportunitiesCreated: result.opportunitiesCreated,
+        providerCalls: surfaceRuns.length,
+        providerCacheHits: surfaceRuns.filter((r) => r.cacheHit).length,
+        providerSpendUsd: spend._sum.unitCostUsd ?? 0,
+        providerErrors: surfaceRuns.filter((r) => !r.success).length,
+        aiErrors: aiErrorCount,
+      },
+    });
+  } catch (err) {
+    console.error(`[runScanForCampaign] failed to finalize ScanRun for campaign ${campaign.id}:`, err);
+  }
 
   // A scan genuinely ran at this point, regardless of how many opportunities it
   // finds — record that honestly, along with the real breakdown, in one write.

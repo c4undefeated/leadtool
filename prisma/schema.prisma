@@ -70,6 +70,7 @@ model Campaign {
   keywords      Keyword[]
   conversations Conversation[]
   searchSurfaces SearchSurface[]
+  scanRuns      ScanRun[]
   createdAt     DateTime       @default(now())
   lastScanAt    DateTime? // set whenever a scan actually runs (manual or scheduled) — never fabricated
 
@@ -109,10 +110,12 @@ model SearchSurface {
   family     String
   phrases    String // JSON-stringified string[]
 
-  // Exploration/exploitation stats — durable rotation state. No separate
-  // per-run log table; cumulative counters are enough to answer "recently
-  // run?", "historically high/low yield?" without a magic number (see
-  // priorityScore in lib/sources/searchOrchestrator.ts).
+  // Exploration/exploitation stats — cumulative, durable rotation state,
+  // cheap to read for ranking (see rankSurfaces in
+  // lib/sources/searchOrchestrator.ts). Per-execution history (which run,
+  // what that specific query returned, cache hit or not) lives in
+  // SearchSurfaceRun below instead — these counters answer "recently run?
+  // historically high/low yield?" without needing to scan that history.
   timesRun           Int       @default(0)
   lastRunAt          DateTime?
   conversationsFound Int       @default(0) // raw hits across all runs, pre-dedup
@@ -121,7 +124,75 @@ model SearchSurface {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  runs SearchSurfaceRun[]
+
   @@index([campaignId])
+}
+
+/// One campaign scan, one row — the durable version of what used to be only
+/// ephemeral console.log lines plus five lastScan* fields on Campaign
+/// (which only ever remember the MOST RECENT scan). Lets query-level yield
+/// ("which surfaces actually produce opportunities?") and lead yield
+/// ("opportunities / analyzed", "opportunities / raw results" — never just
+/// raw volume) be answered from real history instead of guessed at.
+/// Aggregated once, at the end of runScanForCampaign, from the same values
+/// already computed for the lastScan* fields plus a provider-usage lookup —
+/// deliberately does not touch lib/providers/redditapis/{service,budget,
+/// cache,costLedger}.ts, so the ledger's own correctness is never at risk
+/// from an observability feature.
+model ScanRun {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  startedAt  DateTime @default(now())
+  durationMs Int?
+
+  rawProviderResults   Int @default(0) // union across all surfaces this run, pre-dedup
+  uniqueConversations  Int @default(0) // post-dedup, pre-junk-filter
+  skippedJunk          Int @default(0)
+  skippedDuplicates    Int @default(0)
+  aiAnalyzedCount      Int @default(0) // may be less than uniqueConversations - skippedJunk if MAX_ANALYSIS_PER_SCAN was hit
+  opportunitiesCreated Int @default(0)
+
+  // Read back from ProviderUsageEvent for this campaign within the run's
+  // time window, not written directly — see the note above on why this
+  // deliberately never touches the ledger's own write path.
+  providerCalls     Int   @default(0)
+  providerCacheHits Int   @default(0)
+  providerSpendUsd  Float @default(0)
+  providerErrors    Int   @default(0)
+  aiErrors          Int   @default(0)
+
+  notConfigured Boolean @default(false)
+
+  surfaceRuns SearchSurfaceRun[]
+
+  @@index([campaignId, startedAt])
+}
+
+/// One query execution within one ScanRun. This is the actual answer to
+/// "which queries generated conversations/opportunities/mostly junk?" —
+/// SearchSurface's cumulative counters can't tell you WHEN or in what
+/// specific run a given result came from; this can. searchSurfaceId is
+/// null for the campaign's baseline keyword/topic query, which isn't part
+/// of the rotation pool.
+model SearchSurfaceRun {
+  id              String         @id @default(cuid())
+  scanRunId       String
+  scanRun         ScanRun        @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+  searchSurfaceId String?
+  searchSurface   SearchSurface? @relation(fields: [searchSurfaceId], references: [id], onDelete: Cascade)
+  family          String // includes "baseline"
+  query           String
+  rawCount        Int      @default(0)
+  keptCount       Int      @default(0) // after the real recency cutoff
+  cacheHit        Boolean  @default(false)
+  success         Boolean  @default(true)
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  @@index([scanRunId])
+  @@index([searchSurfaceId])
 }
 
 /// The normalized object every SourceAdapter must produce. No adapter-specific

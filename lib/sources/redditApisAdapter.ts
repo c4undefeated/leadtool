@@ -79,6 +79,8 @@ export class RedditApisSourceAdapter implements SourceAdapter {
       t,
       hasGeography: Boolean(params.geography && params.geography.trim()),
       baselineLimit: params.limit ?? 100,
+      maxAgeHours,
+      scanRunId: params.scanRunId,
     });
 
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
