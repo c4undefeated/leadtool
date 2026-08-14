@@ -96,48 +96,6 @@ export async function switchSourceToTwitterAction(formData: FormData): Promise<v
   revalidatePath(`/campaigns/${campaignId}`);
 }
 
-/**
- * Bulk-adds AI-suggested (or any) keyword/subreddit terms in one shot —
- * used by the website enrichment review step so accepting several
- * suggestions at once doesn't mean N separate round trips. Still additive
- * and reviewable: the caller only passes terms the user actually kept
- * checked, nothing is saved without that explicit step.
- */
-export async function addKeywordsBulkAction(
-  campaignId: string,
-  terms: string[],
-  type: "keyword" | "topic" | "subreddit"
-): Promise<{ added: number }> {
-  const { campaign } = await ownedCampaignOrThrow(campaignId);
-  const cleaned = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean))).slice(0, 25);
-  if (cleaned.length === 0) return { added: 0 };
-
-  await prisma.keyword.createMany({
-    data: cleaned.map((term) => ({ campaignId: campaign.id, term, type })),
-  });
-  revalidatePath(`/campaigns/${campaignId}`);
-  return { added: cleaned.length };
-}
-
-/** Same idea as addKeywordsBulkAction, but merges into the single free-text exclusions field. */
-export async function addExclusionsBulkAction(campaignId: string, terms: string[]): Promise<{ added: number }> {
-  const { campaign } = await ownedCampaignOrThrow(campaignId);
-  const cleaned = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean))).slice(0, 25);
-  if (cleaned.length === 0) return { added: 0 };
-
-  const existing = campaign.exclusions
-    ? campaign.exclusions
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-  const merged = Array.from(new Set([...existing, ...cleaned]));
-
-  await prisma.campaign.update({ where: { id: campaign.id }, data: { exclusions: merged.join(", ") } });
-  revalidatePath(`/campaigns/${campaignId}`);
-  return { added: cleaned.length };
-}
-
 const VALID_MAX_LEAD_AGE_HOURS = [12, 24, 48, 168, 720] as const;
 
 /** How recent a live-scanned post must be to surface at all — see lib/sources/redditApisAdapter.ts for enforcement. */
