@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS, SEARCH_FAMILY_LABELS } from "@/lib/format";
+import { parseReasoning, relativeTime, SAFETY_LABELS, ACTION_LABELS, STATUS_LABELS, INTENT_CATEGORY_LABELS, DISCOVERY_CATEGORY_LABELS, LEGACY_SEARCH_FAMILY_LABELS } from "@/lib/format";
 import { EngagementPanel } from "@/components/EngagementPanel";
 import { StatusControl } from "@/components/StatusControl";
 
@@ -40,17 +40,33 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
     ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(redditUsername)}`
     : null;
 
-  // Provenance (spec section 48) — which discovery angle(s) actually found
-  // this conversation, not just "Scout found it somehow." Real data written
-  // at ingestion time (lib/pipeline.ts), not reconstructed after the fact.
-  let discoveredThrough: string[] = [];
-  if (conversation.foundBySurfaces) {
+  // Provenance ("what found this lead?") — which discovery term(s)
+  // literally found this conversation, shown as the concept's own text
+  // (e.g. "hybrid workout plans"), not just an internal category label.
+  // Real data written at ingestion time (lib/pipeline.ts), not
+  // reconstructed after the fact. Falls back to the retired family-bundle
+  // system's provenance for conversations ingested before DiscoveryTerm
+  // shipped.
+  let discoveredThrough: { label: string; category?: string }[] = [];
+  if (conversation.foundByTerms) {
+    try {
+      const ids: string[] = JSON.parse(conversation.foundByTerms);
+      const realIds = ids.filter((id) => id !== "precision");
+      const terms = realIds.length > 0 ? await prisma.discoveryTerm.findMany({ where: { id: { in: realIds } } }) : [];
+      discoveredThrough = [
+        ...(ids.includes("precision") ? [{ label: DISCOVERY_CATEGORY_LABELS.precision! }] : []),
+        ...terms.map((t) => ({ label: t.term, category: DISCOVERY_CATEGORY_LABELS[t.category] ?? t.category })),
+      ];
+    } catch {
+      discoveredThrough = [];
+    }
+  } else if (conversation.foundBySurfaces) {
     try {
       const ids: string[] = JSON.parse(conversation.foundBySurfaces);
       const realIds = ids.filter((id) => id !== "baseline");
       const surfaces = realIds.length > 0 ? await prisma.searchSurface.findMany({ where: { id: { in: realIds } } }) : [];
       const families = new Set(ids.map((id) => (id === "baseline" ? "baseline" : (surfaces.find((s) => s.id === id)?.family ?? null))).filter((f): f is string => Boolean(f)));
-      discoveredThrough = Array.from(families).map((f) => SEARCH_FAMILY_LABELS[f] ?? f);
+      discoveredThrough = Array.from(families).map((f) => ({ label: LEGACY_SEARCH_FAMILY_LABELS[f] ?? f }));
     } catch {
       discoveredThrough = [];
     }
@@ -114,9 +130,9 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
         {discoveredThrough.length > 0 && (
           <div className="text-xs text-muted border-t border-line pt-3 mt-3 flex flex-wrap items-center gap-2">
             <span className="font-medium text-ink">Discovered through:</span>
-            {discoveredThrough.map((label) => (
-              <span key={label} className="pill pill-neutral">
-                {label}
+            {discoveredThrough.map((d, i) => (
+              <span key={`${d.label}-${i}`} className="pill pill-neutral" title={d.category}>
+                {d.label}
               </span>
             ))}
           </div>

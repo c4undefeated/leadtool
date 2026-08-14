@@ -8,8 +8,9 @@ import {
   toggleCampaignStatusAction,
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
+import { regenerateDiscoveryTermsAction } from "@/lib/actions/discovery";
 import { isAiConfigured } from "@/lib/sourceAvailability";
-import { scanDisabledReason, sourceLabel, SEARCH_FAMILY_LABELS, relativeTime } from "@/lib/format";
+import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTime } from "@/lib/format";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -31,7 +32,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       keywords: true,
       _count: { select: { conversations: true } },
       company: { include: { offer: true } },
-      searchSurfaces: { orderBy: [{ opportunitiesFound: "desc" }, { timesRun: "desc" }] },
+      discoveryTerms: { where: { active: true } },
+      scanRuns: { orderBy: { startedAt: "desc" }, take: 5 },
     },
   });
   if (!campaign) notFound();
@@ -49,6 +51,18 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const keywords = campaign.keywords.filter((k) => k.type === "keyword");
   const communities = campaign.keywords.filter((k) => k.type === "subreddit");
   const topics = campaign.keywords.filter((k) => k.type === "topic");
+
+  // Discovery-pool summary — a real, honest view of the rotation pool
+  // ("these are seeds, not the whole universe" made concrete), not just copy.
+  const discoveryCategoryCounts = new Map<string, number>();
+  for (const t of campaign.discoveryTerms) {
+    discoveryCategoryCounts.set(t.category, (discoveryCategoryCounts.get(t.category) ?? 0) + 1);
+  }
+  const topPerformers = [...campaign.discoveryTerms]
+    .filter((t) => t.opportunitiesFound > 0)
+    .sort((a, b) => b.opportunitiesFound - a.opportunitiesFound)
+    .slice(0, 6);
+  const untested = campaign.discoveryTerms.filter((t) => t.timesUsed === 0);
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -212,48 +226,88 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </form>
       </section>
 
-      {campaign.searchSurfaces.length > 0 && (
+      {campaign.sourceType === "reddit" && (
         <section className="rounded-lg border border-line bg-surface p-5">
-          <h2 className="font-medium text-sm mb-1">Discovery angles</h2>
-          <p className="text-sm text-muted mb-4">
-            Your keywords and topics above are seeds, not the whole search. Each scan also rotates through a
-            pool of AI-generated angles below — different ways someone in need might actually phrase a post —
-            to widen coverage without you having to think of every angle yourself. Angles that keep finding
-            real opportunities get prioritized over ones that don't.
-          </p>
-          <div className="flex flex-col gap-2">
-            {campaign.searchSurfaces.map((s) => {
-              const phrases: string[] = (() => {
-                try {
-                  const parsed = JSON.parse(s.phrases);
-                  return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : [];
-                } catch {
-                  return [];
-                }
-              })();
-              return (
-                <div key={s.id} className="rounded-md border border-line px-3 py-2 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                    <span className="font-medium">{SEARCH_FAMILY_LABELS[s.family] ?? s.family}</span>
-                    <span className="text-xs font-mono text-muted">
-                      {s.timesRun === 0
-                        ? "not run yet"
-                        : `run ${s.timesRun}× · last ${relativeTime(s.lastRunAt!)}`}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted mb-1">
-                    {phrases.length > 0 ? phrases.join(" · ") : "no phrases generated"}
-                  </p>
-                  <p className="text-xs font-mono text-muted">
-                    <span className="text-ink">{s.conversationsFound}</span> conversation
-                    {s.conversationsFound === 1 ? "" : "s"} found ·{" "}
-                    <span className="text-ink">{s.opportunitiesFound}</span> opportunit
-                    {s.opportunitiesFound === 1 ? "y" : "ies"}
-                  </p>
-                </div>
-              );
-            })}
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <h2 className="font-medium text-sm">Discovery pool</h2>
+            <form action={regenerateDiscoveryTermsAction}>
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline">
+                Regenerate
+              </button>
+            </form>
           </div>
+          {campaign.discoveryTerms.length > 0 ? (
+            <>
+              <p className="text-sm text-muted mb-4">
+                Your keywords and topics above are seeds, not the whole search. Scout also generated{" "}
+                <span className="text-ink">{campaign.discoveryTerms.length}</span> discovery concepts from your
+                offer profile — the language a real prospect might use, not necessarily your own words — and
+                rotates a batch of them into every scan. Concepts that keep finding real opportunities get
+                prioritized; ones that don't fade without ever being fully dropped.
+              </p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {Array.from(discoveryCategoryCounts.entries()).map(([category, count]) => (
+                  <span key={category} className="pill pill-neutral">
+                    {DISCOVERY_CATEGORY_LABELS[category] ?? category}: {count}
+                  </span>
+                ))}
+              </div>
+
+              {topPerformers.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Top performers</p>
+                  <div className="flex flex-col gap-1 mb-4">
+                    {topPerformers.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between text-sm">
+                        <span>{t.term}</span>
+                        <span className="text-xs font-mono text-muted">
+                          {t.opportunitiesFound} opportunit{t.opportunitiesFound === 1 ? "y" : "ies"} / {t.candidatesFound} found
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {untested.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Not tested yet</p>
+                  <p className="text-xs text-muted mb-1">
+                    {untested
+                      .slice(0, 8)
+                      .map((t) => t.term)
+                      .join(" · ")}
+                    {untested.length > 8 ? ` · +${untested.length - 8} more` : ""}
+                  </p>
+                </>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted">
+              No discovery concepts generated yet — run a scan (or finish your offer profile in Settings first)
+              to have Scout build one.
+            </p>
+          )}
+
+          {campaign.scanRuns.length > 0 && (
+            <>
+              <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2 mt-4">Recent scans</p>
+              <div className="flex flex-col gap-1">
+                {campaign.scanRuns.map((run) => (
+                  <p key={run.id} className="text-xs font-mono text-muted">
+                    {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
+                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed →{" "}
+                    <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
+                    {run.opportunitiesCreated === 1 ? "y" : "ies"}
+                    {run.providerErrors > 0 || run.aiErrors > 0
+                      ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
+                      : ""}
+                  </p>
+                ))}
+              </div>
+            </>
+          )}
         </section>
       )}
 

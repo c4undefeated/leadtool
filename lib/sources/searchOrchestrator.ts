@@ -2,40 +2,46 @@ import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import * as redditapis from "@/lib/providers/redditapis/service";
 import { RedditapisBudgetExceededError, type RedditapisPost } from "@/lib/providers/redditapis/service";
-import { generateSearchSurfaces } from "@/lib/ai/searchSurfaces";
-import { SEARCH_SURFACE_FAMILIES } from "@/lib/ai/schemas";
-import type { SearchSurface } from "@prisma/client";
+import { generateDiscoveryTerms, hashOfferForDiscovery, DISCOVERY_PROMPT_VERSION } from "@/lib/ai/discovery";
+import type { DiscoveryTerm, Offer } from "@prisma/client";
 
 /**
  * Retrieval architecture: broad discovery -> semantic qualification.
  *
- * This module owns every discovery ANGLE (query family, phrase set,
- * rotation, priority) for Reddit retrieval. lib/sources/redditApisAdapter.ts
- * stays a thin execution/normalization layer that calls runDiscovery() and
- * turns whatever it returns into NormalizedConversation[] — it does not
- * construct query strings itself anymore. lib/providers/redditapis/service.ts
- * remains the ONLY thing that ever calls the Redditapis client — every query
- * this module runs goes through searchRedditapis(), so cache -> budget ->
- * network -> ledger is preserved exactly as before, just called more than
- * once per scan now instead of exactly once.
+ * This module owns discovery retrieval for Reddit: the "precision" layer
+ * (a campaign's own manual keywords/topics, always-on) plus a rotated,
+ * budget-respecting batch of individually-tracked AI-generated discovery
+ * terms (lib/ai/discovery.ts). lib/sources/redditApisAdapter.ts stays a
+ * thin execution/normalization layer that calls runDiscovery() and turns
+ * whatever it returns into NormalizedConversation[] — it does not decide
+ * what to search for. lib/providers/redditapis/service.ts remains the ONLY
+ * thing that ever calls the Redditapis client — every query this module
+ * runs goes through searchRedditapis(), so cache -> budget -> network ->
+ * ledger is preserved exactly as before, just called more than once per
+ * scan.
  *
- * One query — the "baseline" — is not part of the rotation pool: it's the
- * campaign's existing keyword/topic query (topic terms AND'd with generic
- * intent words, OR'd against the campaign's own exact keyword phrases),
- * unchanged from before this file existed, and it always runs. Everything
- * else here is ADDITIVE — new discovery angles rotated in alongside it, not
- * a replacement for what was already verified to work.
+ * Precision layer: the campaign's manual keyword/topic phrases, unconditionally
+ * OR'd together. No fixed intent-word gate — Gemini alone judges intent,
+ * after retrieval, on whatever text actually comes back. Manual keywords are
+ * a precision option, not the primary discovery mechanism.
+ *
+ * Discovery layer: DiscoveryTerm rows (up to a few hundred per campaign,
+ * see lib/ai/discovery.ts) are individually ranked (rankTerms) and the
+ * highest-scoring ones this scan are packed into a small, bounded number of
+ * OR-grouped provider calls (packTermBatches) — enough terms to matter,
+ * few enough calls to stay cheap. A returned post is attributed to whichever
+ * specific term(s) in its batch literally appear in its text; when none do
+ * (Redditapis's own relevance matching isn't a literal substring match
+ * either), credit is honestly spread across the whole batch rather than
+ * guessed at.
  */
 
-// Generic, vertical-agnostic buying-intent vocabulary — see
-// redditApisAdapter.ts's prior version of this comment for the live-verified
-// reasoning (0 vs 100 matches). Only domain_topic phrases get ANDed with
-// this; every other family's phrases already carry their own intent signal
-// in how they were generated (see lib/ai/searchSurfaces.ts), so ANDing them
-// again would just over-narrow a query that doesn't need it.
-const INTENT_WORDS = ["looking", "need", "recommend", "recommendation", "recommendations", "suggest", "suggestions", "advice", "hire", "considering", "want", "worth"];
-
 const MAX_PHRASE_GROUP_LENGTH = 400;
+// The precision layer gets a slightly larger budget than a single discovery
+// batch — it's one always-on call for the campaign's own (typically much
+// smaller) manual keyword/topic list, not something rotation needs to keep
+// small to bound provider-call count.
+const PRECISION_QUERY_MAX_LENGTH = 600;
 
 function buildPhraseGroup(phrases: string[], maxLength: number): string {
   const parts: string[] = [];
@@ -52,117 +58,136 @@ function buildPhraseGroup(phrases: string[], maxLength: number): string {
   return parts.join(" OR ");
 }
 
-/** The campaign's always-on query — unchanged behavior from before this module existed. */
+/**
+ * The campaign's precision layer — manual keywords and topics, unconditionally
+ * OR'd together, no intent-word requirement. Always runs alongside the
+ * rotated discovery batches below.
+ */
 export function buildBaselineQuery(keywords: string[], topics: string[]): string {
-  const topicGroup = buildPhraseGroup(topics, MAX_PHRASE_GROUP_LENGTH);
-  const broad = topicGroup ? `(${topicGroup}) AND (${INTENT_WORDS.join(" OR ")})` : "";
-  const precise = buildPhraseGroup(keywords, MAX_PHRASE_GROUP_LENGTH);
-  if (broad && precise) return `(${broad}) OR (${precise})`;
-  return broad || precise;
+  return buildPhraseGroup([...keywords, ...topics], PRECISION_QUERY_MAX_LENGTH);
 }
 
-export function buildSurfaceQuery(family: string, phrases: string[]): string {
-  const group = buildPhraseGroup(phrases, MAX_PHRASE_GROUP_LENGTH);
-  if (!group) return "";
-  if (family === "domain_topic") return `(${group}) AND (${INTENT_WORDS.join(" OR ")})`;
-  return group;
+type TermRef = { id: string; term: string };
+type TermBatch = { termIds: string[]; termTexts: string[]; query: string };
+
+function finalizeBatch(items: TermRef[]): TermBatch {
+  return {
+    termIds: items.map((c) => c.id),
+    termTexts: items.map((c) => c.term),
+    query: items.map((c) => `"${c.term.trim().replace(/"/g, "")}"`).join(" OR "),
+  };
 }
 
 /**
- * Explainable base priority per family — the ranking spec calls for
- * (high-likelihood buyer requests first, experimental/long-tail last),
- * expressed as numbers so exploration/yield bonuses can be added on top
- * without needing separate tie-break logic. Not tuned from data; tuned
- * from the stated reasoning order. `local` starts in the long-tail tier
- * and gets promoted into the "problem" tier at selection time if the
- * business actually has a geography constraint (see rankSurfaces) —
- * geography is a real signal for a local business, a guess for a remote one.
+ * Packs ranked discovery terms into a bounded number of OR-grouped queries.
+ * This is what keeps a large term pool cheap: instead of one provider call
+ * per term, as many terms as fit under maxLength share one call, and no
+ * more than maxBatches calls are ever made regardless of how many terms
+ * were selected for this scan. A single term longer than maxLength still
+ * gets its own batch rather than being silently dropped.
  */
-const BASE_PRIORITY: Record<string, number> = {
-  buyer_request: 90,
-  provider_search: 80,
-  recommendation: 70,
-  problem: 60,
-  comparison: 50,
-  alternative: 50,
-  solution: 40,
-  goal: 30,
-  domain_topic: 20,
-  troubleshooting: 10,
-  dissatisfaction: 10,
-  urgency: 10,
-  beginner_confusion: 10,
-  planning: 10,
-  local: 10,
-};
+export function packTermBatches(terms: TermRef[], maxBatches: number, maxLength: number): TermBatch[] {
+  const batches: TermBatch[] = [];
+  let current: TermRef[] = [];
+  let currentLength = 0;
 
-type RankedSurface = { surface: SearchSurface; phrases: string[]; score: number };
+  for (const t of terms) {
+    if (batches.length >= maxBatches) break;
+    const trimmed = t.term.trim();
+    if (!trimmed) continue;
+    const quoted = `"${trimmed.replace(/"/g, "")}"`;
+    const addition = current.length === 0 ? quoted.length : ` OR ${quoted}`.length;
+
+    if (current.length > 0 && currentLength + addition > maxLength) {
+      batches.push(finalizeBatch(current));
+      current = [];
+      currentLength = 0;
+      if (batches.length >= maxBatches) break;
+    }
+
+    current.push(t);
+    currentLength += current.length === 1 ? quoted.length : addition;
+  }
+
+  if (current.length > 0 && batches.length < maxBatches) {
+    batches.push(finalizeBatch(current));
+  }
+
+  return batches;
+}
+
+const PRIORITY_BASE: Record<string, number> = { high: 30, medium: 20, low: 10 };
+
+type RankedTerm = { term: DiscoveryTerm; score: number };
 
 /**
- * Exploration + exploitation, not "repeat the same queries forever":
- * - base: the family's static priority tier (see BASE_PRIORITY above).
- * - explorationBonus: surfaces that have never run get a strong flat boost
- *   (every family eventually gets tried at least once); surfaces that HAVE
- *   run get a smaller bonus that grows the longer it's been since they last
- *   ran, capped at 30 after ~6 days idle, so rotation actually rotates.
- * - yieldBonus: once a surface has run enough to mean something (>=3 raw
- *   hits recorded), its real historical opportunities-per-hit rate feeds
- *   back in, capped at 40 — high-yield surfaces get run more, low-yield
- *   ones fade, without ever fully zeroing out (base+exploration keep even a
- *   0-yield surface eligible again eventually).
+ * Exploration + exploitation over individual terms, not "repeat the same
+ * queries forever":
+ * - base: Gemini's own stated confidence for this concept (priority).
+ * - explorationBonus: never-used terms get a strong flat boost (every
+ *   concept eventually gets tried at least once); used terms get a smaller
+ *   bonus that grows the longer it's been since they last ran, capped at 30
+ *   after ~6 days idle, so rotation actually rotates through a large pool.
+ * - yieldBonus: once a term has been searched enough to mean something
+ *   (>=3 attributed candidates), its real historical opportunities-per-
+ *   candidate rate feeds back in, capped at 40 — high-yield terms surface
+ *   more, low-yield ones fade, without ever fully zeroing out.
  */
-export function rankSurfaces(surfaces: SearchSurface[], hasGeography: boolean): RankedSurface[] {
+export function rankTerms(terms: DiscoveryTerm[]): RankedTerm[] {
   const now = Date.now();
-  return surfaces
-    .map((s) => {
-      let phrases: string[] = [];
-      try {
-        phrases = JSON.parse(s.phrases);
-      } catch {
-        phrases = [];
-      }
-      return { surface: s, phrases };
-    })
-    .filter((s) => s.phrases.length > 0)
-    .map(({ surface, phrases }) => {
-      let base = BASE_PRIORITY[surface.family] ?? 10;
-      if (surface.family === "local" && hasGeography) base = BASE_PRIORITY.problem!;
+  return terms
+    .filter((t) => t.term.trim().length > 0)
+    .map((t) => {
+      const base = PRIORITY_BASE[t.priority] ?? 10;
 
       let explorationBonus = 0;
-      if (surface.timesRun === 0) {
+      if (t.timesUsed === 0) {
         explorationBonus = 50;
-      } else if (surface.lastRunAt) {
-        const daysIdle = (now - surface.lastRunAt.getTime()) / 86_400_000;
+      } else if (t.lastUsedAt) {
+        const daysIdle = (now - t.lastUsedAt.getTime()) / 86_400_000;
         explorationBonus = Math.min(30, daysIdle * 5);
       }
 
       let yieldBonus = 0;
-      if (surface.conversationsFound >= 3) {
-        yieldBonus = Math.min(40, (surface.opportunitiesFound / surface.conversationsFound) * 200);
+      if (t.candidatesFound >= 3) {
+        yieldBonus = Math.min(40, (t.opportunitiesFound / t.candidatesFound) * 200);
       }
 
-      return { surface, phrases, score: base + explorationBonus + yieldBonus };
+      return { term: t, score: base + explorationBonus + yieldBonus };
     })
     .sort((a, b) => b.score - a.score);
 }
 
-const MAX_ADDITIONAL_SURFACES_PER_SCAN = Number(process.env.MAX_ADDITIONAL_SURFACES_PER_SCAN) || 4;
-// Smaller than the old single-query limit (100) on purpose — with several
-// queries running per scan instead of one, each can request less while
-// total useful volume still goes up. Keeps the raw-post ceiling, and
-// therefore downstream Gemini analysis volume, bounded for the serverless
-// function's execution window.
-const SURFACE_FETCH_LIMIT = Number(process.env.SURFACE_FETCH_LIMIT) || 25;
+/**
+ * Best-effort attribution: which specific term(s) in this batch's OR query
+ * actually appear in the returned post's own text. Falls back to crediting
+ * every term in the batch when none literally match — Redditapis's own
+ * relevance search isn't a literal substring match either, so "we can't
+ * isolate which term caused this hit" is an honest outcome, not a bug.
+ */
+export function matchedTermIds(post: RedditapisPost, batchTerms: TermRef[]): string[] {
+  const text = `${post.title ?? ""} ${post.text ?? ""}`.toLowerCase();
+  const matched = batchTerms.filter((t) => text.includes(t.term.toLowerCase())).map((t) => t.id);
+  return matched.length > 0 ? matched : batchTerms.map((t) => t.id);
+}
+
+// How many of the campaign's ranked discovery terms get a chance to run
+// this scan. Not the same as provider-call count — see packTermBatches,
+// which bundles many terms into few calls.
+const DISCOVERY_TERMS_PER_SCAN = Number(process.env.DISCOVERY_TERMS_PER_SCAN) || 24;
+// Hard cap on discovery-layer provider calls per scan, independent of pool
+// size or DISCOVERY_TERMS_PER_SCAN — this is the actual cost lever. With
+// short 2-5 word terms, ~24 selected terms typically pack into 2-3 batches
+// well under this cap; it exists as a backstop, not the normal path.
+const MAX_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_DISCOVERY_BATCHES_PER_SCAN) || 4;
+const DISCOVERY_BATCH_FETCH_LIMIT = Number(process.env.DISCOVERY_BATCH_FETCH_LIMIT) || 25;
 // Deliberately independent from ANALYSIS_CONCURRENCY (lib/pipeline.ts) —
 // search concurrency and AI concurrency are bounded by completely different
 // constraints (provider stampede risk + shared budget-check races here, vs.
 // Gemini throughput + serverless timeout there) and must not be tied
-// together. Modest on purpose (section 22: avoid provider stampedes) — a
-// handful of calls a few seconds apart is plenty; high concurrency here
-// buys nothing since each call is already fast, and low concurrency keeps
-// the shared budget check honest against races. Configurable for the same
-// reason ANALYSIS_CONCURRENCY is — "safe" is a deployment-specific answer.
-const SURFACE_QUERY_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 2;
+// together. Modest on purpose — a handful of calls a few seconds apart is
+// plenty; low concurrency keeps the shared budget check honest against races.
+const SEARCH_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 2;
 
 export type DiscoveryParams = {
   campaignId: string;
@@ -172,12 +197,11 @@ export type DiscoveryParams = {
   subreddit?: string;
   sort: "new";
   t: "hour" | "day" | "week" | "month" | "year" | "all";
-  hasGeography: boolean;
-  /** Fetch limit for the baseline query specifically — the caller-configured "one big call" limit, unchanged in meaning from before this module existed. Rotated surfaces use their own smaller SURFACE_FETCH_LIMIT regardless, since they're a new addition the caller never configured. */
+  /** Fetch limit for the precision query specifically — the caller-configured "one big call" limit. Discovery batches use their own smaller DISCOVERY_BATCH_FETCH_LIMIT regardless. */
   baselineLimit: number;
-  /** Only used here to compute per-surface keptCount for SearchSurfaceRun rows — the real recency filter that actually governs what reaches ingestion still lives in redditApisAdapter.ts, applied once to the final deduped set. Duplicating the cutoff math here is purely for the metrics record, not a second enforcement point. */
+  /** Only used here to compute per-batch keptCount for DiscoveryTermRun rows — the real recency filter that actually governs what reaches ingestion still lives in redditApisAdapter.ts, applied once to the final deduped set. */
   maxAgeHours: number;
-  /** ScanRun to attach SearchSurfaceRun history to — optional so a caller not tracking scan-level metrics doesn't need to create one first. */
+  /** ScanRun to attach DiscoveryTermRun history to — optional so a caller not tracking scan-level metrics doesn't need to create one first. */
   scanRunId?: string;
 };
 
@@ -185,71 +209,114 @@ export type DiscoveredPost = { post: RedditapisPost; foundBy: string[] };
 
 export type DiscoveryResult = {
   posts: DiscoveredPost[];
-  surfacesRun: { family: string; query: string; rawCount: number }[];
+  batchesRun: { kind: "precision" | "discovery"; termCount: number; query: string; rawCount: number }[];
+  discoveryTermsUsed: number;
   errors: string[];
 };
 
-/** Bootstraps a campaign's rotation pool the first time it has none. Not regenerated on every scan — see lib/ai/searchSurfaces.ts. */
-async function ensureSearchSurfaces(campaignId: string): Promise<void> {
-  const existingCount = await prisma.searchSurface.count({ where: { campaignId } });
-  if (existingCount > 0) return;
+async function regenerateDiscoveryTerms(campaignId: string, offer: Offer): Promise<void> {
+  const generated = await generateDiscoveryTerms(offer);
+  const hash = hashOfferForDiscovery(offer);
+  await prisma.$transaction([
+    prisma.discoveryTerm.updateMany({ where: { campaignId, active: true }, data: { active: false } }),
+    prisma.discoveryTerm.createMany({
+      data: generated.terms.map((t) => ({
+        campaignId,
+        term: t.term,
+        category: t.category,
+        priority: t.priority,
+        promptVersion: DISCOVERY_PROMPT_VERSION,
+      })),
+    }),
+    prisma.campaign.update({ where: { id: campaignId }, data: { discoveryOfferHash: hash } }),
+  ]);
+}
 
+/**
+ * Bootstraps or refreshes a campaign's discovery-term pool. Regeneration
+ * happens when: the campaign has no active terms yet (first-ever scan), the
+ * live offer's fingerprint no longer matches the one the current pool was
+ * generated from (a material business change — see hashOfferForDiscovery),
+ * or the current pool predates this deployment's DISCOVERY_PROMPT_VERSION.
+ * NOT regenerated on every scan otherwise — Gemini generation is a real
+ * cost, not something to pay repeatedly for an unchanged business.
+ */
+async function ensureDiscoveryTerms(campaignId: string): Promise<void> {
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     include: { company: { include: { offer: true } } },
   });
   const offer = campaign?.company.offer;
-  if (!offer) return; // no offer yet — nothing to generate from; baseline query still runs fine on its own
+  if (!campaign || !offer) return; // no offer yet — precision query still works fine on its own
+
+  const activeCount = await prisma.discoveryTerm.count({ where: { campaignId, active: true } });
+  const currentHash = hashOfferForDiscovery(offer);
+  const hashStale = campaign.discoveryOfferHash !== currentHash;
+
+  let versionStale = false;
+  if (activeCount > 0 && !hashStale) {
+    const sample = await prisma.discoveryTerm.findFirst({ where: { campaignId, active: true } });
+    versionStale = sample?.promptVersion !== DISCOVERY_PROMPT_VERSION;
+  }
+
+  if (activeCount > 0 && !hashStale && !versionStale) return;
 
   try {
-    const generated = await generateSearchSurfaces(offer);
-    await prisma.searchSurface.createMany({
-      data: generated.surfaces.map((s) => ({
-        campaignId,
-        family: s.family,
-        phrases: JSON.stringify(s.phrases),
-      })),
-    });
+    await regenerateDiscoveryTerms(campaignId, offer);
   } catch (err) {
-    // Bootstrap failure (e.g. Gemini not configured) should never break a
-    // scan — the baseline query still works on its own. Log for whoever
+    // Generation failure (e.g. Gemini not configured) should never break a
+    // scan — the precision query still works on its own. Log for whoever
     // operates this deployment, not the customer.
-    console.error(`[searchOrchestrator] surface generation failed for campaign ${campaignId}:`, err);
+    console.error(`[searchOrchestrator] discovery term generation failed for campaign ${campaignId}:`, err);
   }
 }
 
+/** Manual "regenerate" trigger (campaign page action) — same path as automatic staleness detection, forced regardless. */
+export async function forceRegenerateDiscoveryTerms(campaignId: string): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { company: { include: { offer: true } } },
+  });
+  const offer = campaign?.company.offer;
+  if (!offer) throw new Error("No offer profile found for this company yet — finish onboarding first.");
+  await regenerateDiscoveryTerms(campaignId, offer);
+}
+
 /**
- * Runs the campaign's baseline query plus a rotated, budget-respecting
- * batch of additional discovery-angle queries, all through
+ * Runs the campaign's precision query plus a rotated, budget-respecting
+ * batch of discovery-term queries, all through
  * lib/providers/redditapis/service.ts (cache -> budget -> network -> ledger
  * preserved for every single call). Deduplicates by source id before
- * returning — a post found by five queries becomes one entry with all five
- * surfaces credited in `foundBy`. Individual query failures (including
- * budget exhaustion partway through the batch) are recorded in `errors` and
- * do not abort the rest of the scan.
+ * returning — a post found by several batches becomes one entry with every
+ * matching term credited in `foundBy`. Individual query failures (including
+ * budget exhaustion partway through) are recorded in `errors` and do not
+ * abort the rest of the scan.
  */
 export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryResult> {
-  await ensureSearchSurfaces(params.campaignId);
+  await ensureDiscoveryTerms(params.campaignId);
 
-  const surfaceRows = await prisma.searchSurface.findMany({ where: { campaignId: params.campaignId } });
-  const ranked = rankSurfaces(surfaceRows, params.hasGeography).slice(0, MAX_ADDITIONAL_SURFACES_PER_SCAN);
+  const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
+  const termRows = await prisma.discoveryTerm.findMany({ where: { campaignId: params.campaignId, active: true } });
+  const ranked = rankTerms(termRows).slice(0, DISCOVERY_TERMS_PER_SCAN);
+  const batches = packTermBatches(
+    ranked.map((r) => ({ id: r.term.id, term: r.term.term })),
+    MAX_DISCOVERY_BATCHES_PER_SCAN,
+    MAX_PHRASE_GROUP_LENGTH,
+  );
 
-  const baselineQuery = buildBaselineQuery(params.keywords, params.topics);
-  const jobs: { family: string; surfaceId: string | null; query: string; limit: number }[] = [];
-  if (baselineQuery) jobs.push({ family: "baseline", surfaceId: null, query: baselineQuery, limit: Math.min(params.baselineLimit, 100) });
-  for (const r of ranked) {
-    const query = buildSurfaceQuery(r.surface.family, r.phrases);
-    if (query) jobs.push({ family: r.surface.family, surfaceId: r.surface.id, query, limit: SURFACE_FETCH_LIMIT });
-  }
+  type Job = { kind: "precision" | "discovery"; termIds: string[]; termTexts: string[]; query: string; limit: number };
+  const jobs: Job[] = [];
+  if (precisionQuery) jobs.push({ kind: "precision", termIds: [], termTexts: [], query: precisionQuery, limit: Math.min(params.baselineLimit, 100) });
+  for (const b of batches) jobs.push({ kind: "discovery", termIds: b.termIds, termTexts: b.termTexts, query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT });
 
   const byId = new Map<string, DiscoveredPost>();
-  const surfacesRun: DiscoveryResult["surfacesRun"] = [];
+  const batchesRun: DiscoveryResult["batchesRun"] = [];
   const errors: string[] = [];
-  const surfaceRawCounts = new Map<string, number>(); // surfaceId -> raw hits, for stats
-  const succeededSurfaceIds = new Set<string>(); // only surfaces that actually executed get their rotation stats touched
+  const termHitCounts = new Map<string, number>(); // termId -> candidates attributed this scan
+  const succeededTermIds = new Set<string>(); // terms whose batch actually executed — the only ones whose rotation stats get touched
   const runRows: {
-    searchSurfaceId: string | null;
-    family: string;
+    termIds: string;
+    kind: "precision" | "discovery";
     query: string;
     rawCount: number;
     keptCount: number;
@@ -262,29 +329,30 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   const context = { campaignId: params.campaignId, companyId: params.companyId };
   const cutoffMs = Date.now() - params.maxAgeHours * 60 * 60 * 1000;
 
-  await mapWithConcurrency(jobs, SURFACE_QUERY_CONCURRENCY, async (job) => {
+  await mapWithConcurrency(jobs, SEARCH_CONCURRENCY, async (job) => {
     if (budgetExhausted) return; // skip remaining queued jobs once we know further calls will just fail the same check
     try {
       const response = await redditapis.searchRedditapis(
         { q: job.query, subreddit: params.subreddit, sort: params.sort, t: params.t, limit: job.limit },
         context,
       );
-      surfacesRun.push({ family: job.family, query: job.query, rawCount: response.posts.length });
-      if (job.surfaceId) {
-        surfaceRawCounts.set(job.surfaceId, response.posts.length);
-        succeededSurfaceIds.add(job.surfaceId);
-      }
+      batchesRun.push({ kind: job.kind, termCount: job.termIds.length, query: job.query, rawCount: response.posts.length });
+      job.termIds.forEach((id) => succeededTermIds.add(id));
 
+      const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
       let keptCount = 0;
       for (const post of response.posts) {
         if (post.created_utc * 1000 >= cutoffMs) keptCount += 1;
         const id = post.name || post.id;
-        const label = job.surfaceId ?? "baseline";
+        const labels = job.kind === "precision" ? ["precision"] : matchedTermIds(post, batchTermRefs);
+        if (job.kind === "discovery") {
+          for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
+        }
         const existing = byId.get(id);
         if (existing) {
-          if (!existing.foundBy.includes(label)) existing.foundBy.push(label);
+          for (const l of labels) if (!existing.foundBy.includes(l)) existing.foundBy.push(l);
         } else {
-          byId.set(id, { post, foundBy: [label] });
+          byId.set(id, { post, foundBy: [...labels] });
         }
       }
 
@@ -307,8 +375,8 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
       }
 
       runRows.push({
-        searchSurfaceId: job.surfaceId,
-        family: job.family,
+        termIds: JSON.stringify(job.termIds),
+        kind: job.kind,
         query: job.query,
         rawCount: response.posts.length,
         keptCount,
@@ -319,11 +387,11 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
     } catch (err) {
       if (err instanceof RedditapisBudgetExceededError) budgetExhausted = true;
       const message = err instanceof Error ? err.message : "Unknown error.";
-      console.error(`[searchOrchestrator] surface "${job.family}" failed for campaign ${params.campaignId}:`, err);
-      errors.push(`${job.family}: ${message}`);
+      console.error(`[searchOrchestrator] ${job.kind} batch failed for campaign ${params.campaignId}:`, err);
+      errors.push(`${job.kind}: ${message}`);
       runRows.push({
-        searchSurfaceId: job.surfaceId,
-        family: job.family,
+        termIds: JSON.stringify(job.termIds),
+        kind: job.kind,
         query: job.query,
         rawCount: 0,
         keptCount: 0,
@@ -336,55 +404,53 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
 
   if (params.scanRunId && runRows.length > 0) {
     try {
-      await prisma.searchSurfaceRun.createMany({
+      await prisma.discoveryTermRun.createMany({
         data: runRows.map((r) => ({ scanRunId: params.scanRunId!, ...r })),
       });
     } catch (err) {
-      console.error(`[searchOrchestrator] failed to persist SearchSurfaceRun rows for campaign ${params.campaignId}:`, err);
+      console.error(`[searchOrchestrator] failed to persist DiscoveryTermRun rows for campaign ${params.campaignId}:`, err);
     }
   }
 
-  // Stats update — only for surfaces whose query actually executed. A
-  // surface that failed or got skipped (e.g. budget ran out before its
-  // turn) never really "ran" — bumping timesRun/lastRunAt for it anyway
-  // would incorrectly suppress its rotation priority next scan for
-  // something that was never its fault. Best-effort either way; never
-  // blocks returning results to the scan.
-  const surfacesToUpdate = ranked.filter((r) => succeededSurfaceIds.has(r.surface.id));
-  if (surfacesToUpdate.length > 0) {
+  // Stats update — only for terms whose batch actually executed. A term
+  // that was skipped (e.g. budget ran out before its batch's turn) never
+  // really "ran" — bumping timesUsed/lastUsedAt for it anyway would
+  // incorrectly suppress its rotation priority next scan for something
+  // that was never its fault. Best-effort either way; never blocks
+  // returning results to the scan.
+  const usedTermIds = Array.from(succeededTermIds);
+  if (usedTermIds.length > 0) {
     try {
       await Promise.all(
-        surfacesToUpdate.map((r) =>
-          prisma.searchSurface.update({
-            where: { id: r.surface.id },
+        usedTermIds.map((id) =>
+          prisma.discoveryTerm.update({
+            where: { id },
             data: {
-              timesRun: { increment: 1 },
-              lastRunAt: new Date(),
-              conversationsFound: { increment: surfaceRawCounts.get(r.surface.id) ?? 0 },
+              timesUsed: { increment: 1 },
+              lastUsedAt: new Date(),
+              candidatesFound: { increment: termHitCounts.get(id) ?? 0 },
             },
           }),
         ),
       );
     } catch (err) {
-      console.error(`[searchOrchestrator] surface stats update failed for campaign ${params.campaignId}:`, err);
+      console.error(`[searchOrchestrator] discovery term stats update failed for campaign ${params.campaignId}:`, err);
     }
   }
 
-  return { posts: Array.from(byId.values()), surfacesRun, errors };
+  return { posts: Array.from(byId.values()), batchesRun, discoveryTermsUsed: usedTermIds.length, errors };
 }
 
-/** Credits a genuine opportunity back to every surface that found it — the exploitation half of rotation. Called from pipeline.ts once analysis confirms is_opportunity. */
-export async function creditOpportunityToSurfaces(surfaceIds: string[]): Promise<void> {
-  const realIds = surfaceIds.filter((id) => id !== "baseline");
+/** Credits a genuine opportunity back to every term that found it — the exploitation half of rotation. Called from pipeline.ts once analysis confirms is_opportunity. */
+export async function creditOpportunityToTerms(ids: string[]): Promise<void> {
+  const realIds = ids.filter((id) => id !== "precision");
   if (realIds.length === 0) return;
   try {
-    await prisma.searchSurface.updateMany({
+    await prisma.discoveryTerm.updateMany({
       where: { id: { in: realIds } },
       data: { opportunitiesFound: { increment: 1 } },
     });
   } catch (err) {
-    console.error("[searchOrchestrator] failed to credit opportunity to surfaces:", err);
+    console.error("[searchOrchestrator] failed to credit opportunity to discovery terms:", err);
   }
 }
-
-export { SEARCH_SURFACE_FAMILIES };

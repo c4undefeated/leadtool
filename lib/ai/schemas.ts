@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Type, type Schema } from "@google/genai";
 
-export const ANALYSIS_PROMPT_VERSION = "analysis-v4-gemini";
+export const ANALYSIS_PROMPT_VERSION = "analysis-v5-gemini";
 export const ENGAGEMENT_PROMPT_VERSION = "engagement-v2-gemini";
 
 export const INTENT_CATEGORIES = [
@@ -157,68 +157,72 @@ export function priorityTierFromMatchScore(matchScore: number): "high" | "potent
   return "low";
 }
 
+export const DISCOVERY_PROMPT_VERSION = "discovery-v1-gemini";
+
 /**
- * Discovery angles for retrieval (lib/ai/searchSurfaces.ts,
- * lib/sources/searchOrchestrator.ts). Deliberately separate from
- * intent_category above — a family describes a RETRIEVAL angle (how we go
- * looking), a category describes a CLASSIFICATION of what Gemini found
- * (what it decided once it got there). They're related in spirit but not
- * the same enum on purpose.
+ * Individual discovery-concept categories (lib/ai/discovery.ts,
+ * lib/sources/searchOrchestrator.ts) — supersedes the old 15-family
+ * SEARCH_SURFACE_FAMILIES bundle system. Deliberately separate from
+ * intent_category above — a category here describes a RETRIEVAL angle (the
+ * kind of language a prospect might use), intent_category describes a
+ * CLASSIFICATION of what Gemini found once it got there. Related in spirit,
+ * not the same enum on purpose.
  */
-export const SEARCH_SURFACE_FAMILIES = [
-  "buyer_request",
-  "provider_search",
-  "recommendation",
+export const DISCOVERY_TERM_CATEGORIES = [
+  "service",
   "problem",
-  "solution",
-  "goal",
-  "planning",
-  "comparison",
+  "outcome",
+  "task",
+  "tool",
   "alternative",
-  "troubleshooting",
-  "dissatisfaction",
-  "urgency",
-  "beginner_confusion",
-  "domain_topic",
-  "local",
+  "frustration",
+  "beginner_language",
+  "advanced_language",
+  "decision_language",
+  "recommendation_language",
+  "adjacent_concept",
+  "other",
 ] as const;
 
-export const searchSurfaceResultSchema = z.object({
-  surfaces: z
-    .array(
-      z.object({
-        family: z.enum(SEARCH_SURFACE_FAMILIES),
-        phrases: z.array(z.string()).max(8),
-      }),
-    )
-    .min(1)
-    .max(SEARCH_SURFACE_FAMILIES.length),
+export const DISCOVERY_TERM_PRIORITIES = ["high", "medium", "low"] as const;
+
+export const discoveryTermSchema = z.object({
+  term: z.string().min(1).max(80),
+  category: z.enum(DISCOVERY_TERM_CATEGORIES),
+  priority: z.enum(DISCOVERY_TERM_PRIORITIES),
 });
 
-export type SearchSurfaceResult = z.infer<typeof searchSurfaceResultSchema>;
+export const discoveryTermResultSchema = z.object({
+  terms: z.array(discoveryTermSchema).min(1).max(300),
+});
 
-/** Business offer -> discovery-angle phrase sets. Generated once per campaign, then persisted and rotated — see lib/sources/searchOrchestrator.ts. */
-export const searchSurfaceResponseSchema: Schema = {
+export type DiscoveryTermResult = z.infer<typeof discoveryTermResultSchema>;
+
+/** Business offer -> a large pool of individual discovery concepts. Generated lazily per campaign, then persisted and rotated — see lib/sources/searchOrchestrator.ts. */
+export const discoveryTermResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    surfaces: {
+    terms: {
       type: Type.ARRAY,
       minItems: "1",
-      maxItems: String(SEARCH_SURFACE_FAMILIES.length),
+      maxItems: "300",
       items: {
         type: Type.OBJECT,
         properties: {
-          family: { type: Type.STRING, enum: [...SEARCH_SURFACE_FAMILIES] },
-          phrases: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            maxItems: "8",
-            description: "Short (2-5 word) phrases for this discovery angle — never full sentences. Empty array if this angle genuinely doesn't apply (e.g. \"local\" for a fully remote business).",
+          term: {
+            type: Type.STRING,
+            description: "A short (2-5 word) real-world phrase a prospect might actually write — never a full sentence, never the business's own marketing language.",
+          },
+          category: { type: Type.STRING, enum: [...DISCOVERY_TERM_CATEGORIES] },
+          priority: {
+            type: Type.STRING,
+            enum: [...DISCOVERY_TERM_PRIORITIES],
+            description: "Your own confidence that this concept will surface real prospects for this business — high/medium/low.",
           },
         },
-        required: ["family", "phrases"],
+        required: ["term", "category", "priority"],
       },
     },
   },
-  required: ["surfaces"],
+  required: ["terms"],
 };

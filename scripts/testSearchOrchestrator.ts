@@ -1,26 +1,29 @@
 /**
  * Deterministic, pure-logic checks for lib/sources/searchOrchestrator.ts —
- * query construction (buildBaselineQuery, buildSurfaceQuery) and rotation
- * priority (rankSurfaces). No network, no database, no API key needed.
+ * precision-query construction (buildBaselineQuery), discovery-term batch
+ * packing (packTermBatches), rotation priority (rankTerms), and literal
+ * term attribution (matchedTermIds). No network, no database, no API key
+ * needed.
  *
- * What this deliberately does NOT cover (needs live keys / a real DB, per
- * spec section 50): runDiscovery() end-to-end (calls searchRedditapis and
- * prisma), ensureSearchSurfaces()/generateSearchSurfaces() (calls Gemini),
- * SearchSurfaceRun/ScanRun persistence, and cache-hit/budget-exhaustion
- * behavior under real provider responses. Those require the live sandbox
- * verification called out in the final report, not this script.
+ * What this deliberately does NOT cover (needs live keys / a real DB):
+ * runDiscovery() end-to-end (calls searchRedditapis and prisma),
+ * ensureDiscoveryTerms()/generateDiscoveryTerms() (calls Gemini),
+ * DiscoveryTermRun/ScanRun persistence, and cache-hit/budget-exhaustion
+ * behavior under real provider responses. Those require live sandbox
+ * verification, not this script.
  *
  * Run with: npm run test:search-orchestrator
  */
-import { buildBaselineQuery, buildSurfaceQuery, rankSurfaces } from "@/lib/sources/searchOrchestrator";
-import type { SearchSurface } from "@prisma/client";
+import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds } from "@/lib/sources/searchOrchestrator";
+import type { DiscoveryTerm } from "@prisma/client";
+import type { RedditapisPost } from "@/lib/providers/redditapis/service";
 
 let pass = 0;
 let fail = 0;
 const failures: string[] = [];
 
 function check(id: string, condition: boolean, detail: string) {
-  process.stdout.write(`  ${id.padEnd(45)} `);
+  process.stdout.write(`  ${id.padEnd(50)} `);
   if (condition) {
     pass += 1;
     console.log("PASS");
@@ -31,153 +34,181 @@ function check(id: string, condition: boolean, detail: string) {
   }
 }
 
-function makeSurface(overrides: Partial<SearchSurface> & { family: string; phrases: string }): SearchSurface {
+function makeTerm(overrides: Partial<DiscoveryTerm> & { id: string; term: string; priority: string }): DiscoveryTerm {
   return {
-    id: overrides.id ?? `surface-${overrides.family}`,
     campaignId: "campaign-1",
+    category: "problem",
+    promptVersion: "discovery-v1-gemini",
+    active: true,
+    timesUsed: 0,
+    lastUsedAt: null,
+    candidatesFound: 0,
+    opportunitiesFound: 0,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
-    timesRun: 0,
-    lastRunAt: null,
-    conversationsFound: 0,
-    opportunitiesFound: 0,
     ...overrides,
   };
+}
+
+function makePost(overrides: Partial<RedditapisPost> = {}): RedditapisPost {
+  return { id: "abc", name: "t3_abc", created_utc: Date.now() / 1000, ...overrides };
 }
 
 function main() {
   console.log("Running searchOrchestrator pure-logic checks...\n");
 
-  // --- buildBaselineQuery ---
+  // --- buildBaselineQuery (precision layer) ---
   const both = buildBaselineQuery(["need a coach"], ["personal trainer"]);
   check(
-    "baseline: topics + keywords combined with OR",
-    both.includes('"need a coach"') && both.includes('"personal trainer"') && both.includes(" OR "),
+    "precision: keywords + topics unconditionally OR'd",
+    both.includes('"need a coach"') && both.includes('"personal trainer"') && both.includes(" OR ") && !both.includes(" AND "),
     `got: ${both}`,
   );
 
-  const keywordsOnly = buildBaselineQuery(["need a coach"], []);
-  check(
-    "baseline: keywords-only has no intent-word AND",
-    keywordsOnly === '"need a coach"',
-    `got: ${keywordsOnly}`,
-  );
-
-  const topicsOnly = buildBaselineQuery([], ["personal trainer"]);
-  check(
-    "baseline: topics-only ANDs with intent vocabulary",
-    topicsOnly.includes('"personal trainer"') && topicsOnly.includes(" AND ") && topicsOnly.includes("looking"),
-    `got: ${topicsOnly}`,
-  );
-
   const neither = buildBaselineQuery([], []);
-  check("baseline: no keywords/topics -> empty string", neither === "", `got: "${neither}"`);
+  check("precision: no keywords/topics -> empty string", neither === "", `got: "${neither}"`);
 
-  // --- buildSurfaceQuery ---
-  const domainTopic = buildSurfaceQuery("domain_topic", ["yoga"]);
+  const single = buildBaselineQuery(["personal trainer"], []);
+  check("precision: single term has no AND intent-word gate", single === '"personal trainer"', `got: ${single}`);
+
+  // --- packTermBatches ---
+  const shortTerms = [
+    { id: "a", term: "workout routine" },
+    { id: "b", term: "training split" },
+    { id: "c", term: "progressive overload" },
+  ];
+  const onebatch = packTermBatches(shortTerms, 4, 400);
   check(
-    "surface: domain_topic ANDs with intent vocabulary",
-    domainTopic.includes('"yoga"') && domainTopic.includes(" AND ") && domainTopic.includes("looking"),
-    `got: ${domainTopic}`,
+    "batching: short terms fit in one batch under a generous limit",
+    onebatch.length === 1 && onebatch[0]!.termIds.length === 3,
+    `got ${onebatch.length} batch(es): ${JSON.stringify(onebatch.map((b) => b.termIds))}`,
   );
 
-  const buyerRequest = buildSurfaceQuery("buyer_request", ["looking for a plumber"]);
+  const tightBatches = packTermBatches(shortTerms, 4, 30);
   check(
-    "surface: non-domain_topic family has no extra AND",
-    buyerRequest === '"looking for a plumber"',
-    `got: ${buyerRequest}`,
-  );
-
-  const emptyPhrases = buildSurfaceQuery("problem", []);
-  check("surface: empty phrase list -> empty string", emptyPhrases === "", `got: "${emptyPhrases}"`);
-
-  // --- rankSurfaces ---
-  const neverRunBuyer = makeSurface({ id: "buyer-never", family: "buyer_request", phrases: JSON.stringify(["x"]) });
-  const ranRecentlyBuyer = makeSurface({
-    id: "buyer-recent",
-    family: "buyer_request",
-    phrases: JSON.stringify(["x"]),
-    timesRun: 3,
-    lastRunAt: new Date(),
-  });
-  const neverRunTroubleshooting = makeSurface({
-    id: "trouble-never",
-    family: "troubleshooting",
-    phrases: JSON.stringify(["x"]),
-  });
-  const ranked1 = rankSurfaces([neverRunBuyer, ranRecentlyBuyer, neverRunTroubleshooting], false);
-  check(
-    "rank: never-run beats same-family just-run",
-    ranked1.findIndex((r) => r.surface.id === "buyer-never") < ranked1.findIndex((r) => r.surface.id === "buyer-recent"),
-    `order: ${ranked1.map((r) => r.surface.id).join(", ")}`,
+    "batching: a tight length limit splits into multiple batches",
+    tightBatches.length > 1 && tightBatches.every((b) => b.termIds.length >= 1),
+    `got ${tightBatches.length} batch(es): ${JSON.stringify(tightBatches.map((b) => b.termIds))}`,
   );
   check(
-    "rank: high base tier beats low tier even both never-run",
-    ranked1.findIndex((r) => r.surface.id === "buyer-never") < ranked1.findIndex((r) => r.surface.id === "trouble-never"),
-    `order: ${ranked1.map((r) => r.surface.id).join(", ")}`,
+    "batching: every term still appears exactly once across batches",
+    tightBatches.flatMap((b) => b.termIds).sort().join(",") === "a,b,c",
+    `got: ${tightBatches.flatMap((b) => b.termIds).join(",")}`,
   );
 
-  const localNoGeo = makeSurface({ id: "local", family: "local", phrases: JSON.stringify(["near me"]) });
-  const [localRankedNoGeo] = rankSurfaces([localNoGeo], false);
-  const [localRankedWithGeo] = rankSurfaces([localNoGeo], true);
+  const manyTerms = Array.from({ length: 10 }, (_, i) => ({ id: `t${i}`, term: `concept number ${i}` }));
+  const capped = packTermBatches(manyTerms, 2, 30);
+  check("batching: maxBatches cap is respected", capped.length <= 2, `got ${capped.length} batches`);
+
+  const oneHugeTerm = [{ id: "huge", term: "a".repeat(100) }];
+  const hugeBatch = packTermBatches(oneHugeTerm, 4, 10);
   check(
-    "rank: local promoted to problem tier only when hasGeography",
-    localRankedWithGeo!.score > localRankedNoGeo!.score,
-    `no-geo score=${localRankedNoGeo!.score}, with-geo score=${localRankedWithGeo!.score}`,
+    "batching: a single term longer than maxLength still gets its own batch, not dropped",
+    hugeBatch.length === 1 && hugeBatch[0]!.termIds[0] === "huge",
+    `got: ${JSON.stringify(hugeBatch)}`,
   );
 
-  const emptyPhraseSurface = makeSurface({ id: "empty", family: "problem", phrases: JSON.stringify([]) });
-  const rankedWithEmpty = rankSurfaces([emptyPhraseSurface, neverRunBuyer], false);
+  const withBlank = packTermBatches([{ id: "x", term: "  " }, { id: "y", term: "real term" }], 4, 400);
   check(
-    "rank: surfaces with zero usable phrases are filtered out entirely",
-    rankedWithEmpty.every((r) => r.surface.id !== "empty") && rankedWithEmpty.length === 1,
-    `remaining: ${rankedWithEmpty.map((r) => r.surface.id).join(", ")}`,
+    "batching: whitespace-only terms are skipped",
+    withBlank.length === 1 && withBlank[0]!.termIds.length === 1 && withBlank[0]!.termIds[0] === "y",
+    `got: ${JSON.stringify(withBlank)}`,
   );
 
-  const highYield = makeSurface({
+  // --- rankTerms ---
+  const neverUsedHigh = makeTerm({ id: "high-never", term: "x", priority: "high" });
+  const usedHigh = makeTerm({ id: "high-used", term: "x", priority: "high", timesUsed: 3, lastUsedAt: new Date() });
+  const neverUsedLow = makeTerm({ id: "low-never", term: "x", priority: "low" });
+  const ranked1 = rankTerms([neverUsedHigh, usedHigh, neverUsedLow]);
+  check(
+    "rank: never-used beats same-priority just-used",
+    ranked1.findIndex((r) => r.term.id === "high-never") < ranked1.findIndex((r) => r.term.id === "high-used"),
+    `order: ${ranked1.map((r) => r.term.id).join(", ")}`,
+  );
+  check(
+    "rank: high priority beats low priority even both never-used",
+    ranked1.findIndex((r) => r.term.id === "high-never") < ranked1.findIndex((r) => r.term.id === "low-never"),
+    `order: ${ranked1.map((r) => r.term.id).join(", ")}`,
+  );
+
+  const blankTerm = makeTerm({ id: "blank", term: "   ", priority: "high" });
+  const rankedWithBlank = rankTerms([blankTerm, neverUsedLow]);
+  check(
+    "rank: terms with no usable text are filtered out entirely",
+    rankedWithBlank.every((r) => r.term.id !== "blank") && rankedWithBlank.length === 1,
+    `remaining: ${rankedWithBlank.map((r) => r.term.id).join(", ")}`,
+  );
+
+  const highYield = makeTerm({
     id: "high-yield",
-    family: "problem",
-    phrases: JSON.stringify(["x"]),
-    timesRun: 5,
-    lastRunAt: new Date(),
-    conversationsFound: 10,
+    term: "x",
+    priority: "medium",
+    timesUsed: 5,
+    lastUsedAt: new Date(),
+    candidatesFound: 10,
     opportunitiesFound: 4, // 0.4 ratio * 200 = 80, capped at 40
   });
-  const [highYieldRanked] = rankSurfaces([highYield], false);
+  const [highYieldRanked] = rankTerms([highYield]);
   check(
-    "rank: yieldBonus caps at 40 (base 60 + 0 exploration + 40 yield = 100)",
-    highYieldRanked!.score === 100,
+    "rank: yieldBonus caps at 40 (base 20 medium + 0 exploration + 40 yield = 60)",
+    highYieldRanked!.score === 60,
     `got score=${highYieldRanked!.score}`,
   );
 
-  const belowYieldThreshold = makeSurface({
+  const belowThreshold = makeTerm({
     id: "below-threshold",
-    family: "problem",
-    phrases: JSON.stringify(["x"]),
-    timesRun: 2,
-    lastRunAt: new Date(),
-    conversationsFound: 2, // below the 3-hit minimum -> no yieldBonus regardless of ratio
+    term: "x",
+    priority: "medium",
+    timesUsed: 2,
+    lastUsedAt: new Date(),
+    candidatesFound: 2, // below the 3-candidate minimum -> no yieldBonus regardless of ratio
     opportunitiesFound: 2,
   });
-  const [belowThresholdRanked] = rankSurfaces([belowYieldThreshold], false);
+  const [belowRanked] = rankTerms([belowThreshold]);
   check(
-    "rank: yieldBonus requires >=3 conversationsFound (score stays at base 60)",
-    belowThresholdRanked!.score === 60,
-    `got score=${belowThresholdRanked!.score}`,
+    "rank: yieldBonus requires >=3 candidatesFound (score stays at base 20)",
+    belowRanked!.score === 20,
+    `got score=${belowRanked!.score}`,
   );
 
-  const idleTenDays = makeSurface({
+  const idleTenDays = makeTerm({
     id: "idle-10d",
-    family: "problem",
-    phrases: JSON.stringify(["x"]),
-    timesRun: 1,
-    lastRunAt: new Date(Date.now() - 10 * 86_400_000),
+    term: "x",
+    priority: "medium",
+    timesUsed: 1,
+    lastUsedAt: new Date(Date.now() - 10 * 86_400_000),
   });
-  const [idleRanked] = rankSurfaces([idleTenDays], false);
+  const [idleRanked] = rankTerms([idleTenDays]);
   check(
-    "rank: explorationBonus caps at 30 after long idle (base 60 + 30 = 90)",
-    idleRanked!.score === 90,
+    "rank: explorationBonus caps at 30 after long idle (base 20 + 30 = 50)",
+    idleRanked!.score === 50,
     `got score=${idleRanked!.score}`,
+  );
+
+  // --- matchedTermIds (literal-substring attribution) ---
+  const batchTerms = [
+    { id: "t1", term: "hybrid workout plans" },
+    { id: "t2", term: "training split" },
+  ];
+  const literalMatch = matchedTermIds(makePost({ title: "Need help with hybrid workout plans for beginners" }), batchTerms);
+  check(
+    "attribution: literal substring match credits the specific term",
+    literalMatch.length === 1 && literalMatch[0] === "t1",
+    `got: ${JSON.stringify(literalMatch)}`,
+  );
+
+  const caseInsensitive = matchedTermIds(makePost({ text: "What's a good TRAINING SPLIT for a beginner?" }), batchTerms);
+  check(
+    "attribution: matching is case-insensitive",
+    caseInsensitive.length === 1 && caseInsensitive[0] === "t2",
+    `got: ${JSON.stringify(caseInsensitive)}`,
+  );
+
+  const noMatch = matchedTermIds(makePost({ title: "Something completely unrelated to either phrase" }), batchTerms);
+  check(
+    "attribution: no literal match falls back to crediting the whole batch",
+    noMatch.length === 2 && noMatch.includes("t1") && noMatch.includes("t2"),
+    `got: ${JSON.stringify(noMatch)}`,
   );
 
   console.log(`\n${pass} passed, ${fail} failed, out of ${pass + fail} checks.\n`);

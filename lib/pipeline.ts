@@ -4,7 +4,7 @@ import type { NormalizedConversation } from "@/lib/sources/types";
 import { analyzeConversation, ANALYSIS_PROMPT_VERSION } from "@/lib/ai/analysis";
 import { priorityTierFromMatchScore } from "@/lib/ai/schemas";
 import { mapWithConcurrency } from "@/lib/concurrency";
-import { creditOpportunityToSurfaces } from "@/lib/sources/searchOrchestrator";
+import { creditOpportunityToTerms } from "@/lib/sources/searchOrchestrator";
 import { Prisma, type Offer } from "@prisma/client";
 
 export { mapWithConcurrency };
@@ -109,7 +109,7 @@ async function ingestOne(campaignId: string, nc: NormalizedConversation) {
         community: nc.community,
         postedAt: nc.postedAt,
         metadata: nc.metadata ? JSON.stringify(nc.metadata) : null,
-        foundBySurfaces: nc.foundBySurfaces ? JSON.stringify(nc.foundBySurfaces) : null,
+        foundByTerms: nc.foundByTerms ? JSON.stringify(nc.foundByTerms) : null,
       },
     });
     return { conversation, isNew: true };
@@ -132,7 +132,7 @@ async function ingestOne(campaignId: string, nc: NormalizedConversation) {
 export async function runAnalysisForConversation(conversationId: string, offer: Offer) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    include: { opportunity: true },
+    include: { opportunity: true, campaign: true },
   });
   if (!conversation || conversation.opportunity) return null;
 
@@ -147,7 +147,7 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
     postedAt: conversation.postedAt,
   };
 
-  const result = await analyzeConversation(nc, offer);
+  const result = await analyzeConversation(nc, offer, conversation.campaign.exclusions);
   if (!result) return null;
 
   // conversationId is @unique on Opportunity, so the DB is the real backstop
@@ -189,16 +189,19 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
     throw err;
   }
 
-  // Exploitation half of rotation: whichever discovery angle(s) actually
+  // Exploitation half of rotation: whichever discovery term(s) actually
   // found this post get credit now that it's a confirmed genuine
-  // opportunity, not just a raw hit — see searchOrchestrator.ts's
-  // rankSurfaces for how this feeds back into future scans.
-  if (conversation.foundBySurfaces) {
+  // opportunity, not just a raw candidate — see searchOrchestrator.ts's
+  // rankTerms for how this feeds back into future scans. Conversations
+  // ingested before this field existed only have the legacy
+  // foundBySurfaces value, which the new DiscoveryTerm table doesn't
+  // recognize — nothing to credit for those, which is correct, not a bug.
+  if (conversation.foundByTerms) {
     try {
-      const surfaceIds: string[] = JSON.parse(conversation.foundBySurfaces);
-      await creditOpportunityToSurfaces(surfaceIds);
+      const termIds: string[] = JSON.parse(conversation.foundByTerms);
+      await creditOpportunityToTerms(termIds);
     } catch (err) {
-      console.error(`[runAnalysisForConversation] failed to parse foundBySurfaces for conversation ${conversation.id}:`, err);
+      console.error(`[runAnalysisForConversation] failed to parse foundByTerms for conversation ${conversation.id}:`, err);
     }
   }
 
@@ -390,18 +393,17 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     }
   });
 
-  console.log(
-    `[runScanForCampaign] campaign ${campaign.id} summary: ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
-  );
-
   // Finalize the ScanRun row created before the search call — aggregated
-  // from SearchSurfaceRun rows the orchestrator already wrote (raw counts,
-  // provider call/error/cache-hit counts) plus a real spend lookup, so
-  // "why is IntentScout producing fewer leads" can eventually be answered
-  // from durable history instead of guessed at from a single console.log.
-  // Best-effort: never let an observability write fail the scan itself.
+  // from DiscoveryTermRun rows the orchestrator already wrote (raw counts,
+  // provider call/error/cache-hit counts, distinct terms used) plus a real
+  // spend lookup, so "why is IntentScout producing fewer leads" can
+  // eventually be answered from durable history instead of guessed at from
+  // a single console.log. Best-effort: never let an observability write
+  // fail the scan itself.
+  let discoveryTermsUsed = 0;
   try {
-    const surfaceRuns = await prisma.searchSurfaceRun.findMany({ where: { scanRunId: scanRun.id } });
+    const termRuns = await prisma.discoveryTermRun.findMany({ where: { scanRunId: scanRun.id } });
+    discoveryTermsUsed = new Set(termRuns.flatMap((r) => JSON.parse(r.termIds) as string[])).size;
     const spend = await prisma.providerUsageEvent.aggregate({
       where: { campaignId: campaign.id, createdAt: { gte: scanStartedAt } },
       _sum: { unitCostUsd: true },
@@ -410,22 +412,32 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       where: { id: scanRun.id },
       data: {
         durationMs: Date.now() - scanStartedAt.getTime(),
-        rawProviderResults: surfaceRuns.reduce((sum, r) => sum + r.rawCount, 0),
+        rawProviderResults: termRuns.reduce((sum, r) => sum + r.rawCount, 0),
         uniqueConversations: conversations.length,
         skippedJunk: result.skippedJunk,
         skippedDuplicates: result.skippedDuplicates,
         aiAnalyzedCount: toAnalyze.length,
         opportunitiesCreated: result.opportunitiesCreated,
-        providerCalls: surfaceRuns.length,
-        providerCacheHits: surfaceRuns.filter((r) => r.cacheHit).length,
+        discoveryTermsUsed,
+        providerCalls: termRuns.length,
+        providerCacheHits: termRuns.filter((r) => r.cacheHit).length,
         providerSpendUsd: spend._sum.unitCostUsd ?? 0,
-        providerErrors: surfaceRuns.filter((r) => !r.success).length,
+        providerErrors: termRuns.filter((r) => !r.success).length,
         aiErrors: aiErrorCount,
       },
     });
   } catch (err) {
     console.error(`[runScanForCampaign] failed to finalize ScanRun for campaign ${campaign.id}:`, err);
   }
+
+  // Full funnel, one line — lets "why is this campaign producing fewer
+  // leads" be diagnosed from logs alone: bad discovery (few raw results),
+  // bad retrieval (many raw, few recent), heavy overlap (many duplicates),
+  // a noisy source (heavy junk), or strict qualification (many analyzed,
+  // few opportunities) all look different here.
+  console.log(
+    `[runScanForCampaign] campaign ${campaign.id} summary: discovery terms used ${discoveryTermsUsed} -> ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${toAnalyze.length} analyzed -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
+  );
 
   // A scan genuinely ran at this point, regardless of how many opportunities it
   // finds — record that honestly, along with the real breakdown, in one write.
