@@ -1,23 +1,33 @@
 import { getGeminiClient, ANALYSIS_MODEL } from "./client";
-import { enrichmentResultSchema, enrichmentResponseSchema, type EnrichmentResult } from "./schemas";
+import { siteAnalysisResultSchema, siteAnalysisResponseSchema, type SiteAnalysisResult } from "./schemas";
 import type { ScrapedSite } from "@/lib/enrichment/scrapeWebsite";
 
+/**
+ * Turns a scraped website into an Offer-profile suggestion — the same
+ * fields (businessType, whatYouSell, problemsSolved, idealCustomer,
+ * geography, excludedAudiences) a human fills in by hand during onboarding
+ * or in Settings. This is the "paste your website and Scout figures out
+ * your business" entry point; the actual discovery-concept generation that
+ * finds prospects happens afterward, from the resulting Offer, via
+ * lib/ai/discovery.ts — this module's only job is understanding the
+ * business, not deciding what to search for.
+ */
 function buildSystemPrompt(): string {
   return `You are Scout's setup assistant inside IntentScout, an AI demand-intelligence platform.
 
-Your job: read the scraped content of ONE business's website and suggest a starting keyword/community/exclusion list a human will review before it's used to monitor Reddit for buying-intent conversations.
+Your job: read the scraped content of ONE business's website and infer its offer profile — what they sell, what real problems they solve, and who their ideal customer is. This is the SAME profile a human would type into a short onboarding form; a human reviews and can edit whatever you produce before anything is saved.
+
+Why this matters: this profile is what actually drives Scout's discovery-concept generation downstream — the broad set of real-world problem/outcome/tool/frustration language Scout searches for prospects with. It is NOT itself a list of search phrases or keywords. Do not produce keyword phrases, buying-intent phrases, or anything shaped like a Reddit search query — that is a different system's job, working from what you produce here.
 
 RULES
-- Ground every suggestion in what the scraped content actually says about this business. Never invent an industry, product, or audience the content doesn't support.
-- buyer_keywords: short phrases a real prospect would actually type or say when they have a live need this specific business could serve right now (e.g. "need a [x]", "[x] recommendations", "struggling with [x]") — not the company's own marketing taglines, not generic industry buzzwords.
-- topic_terms: 1-3 word core nouns for what this business actually sells (e.g. "personal trainer", "fitness coach", "web designer") — NOT full sentences, NOT intent phrases like buyer_keywords above. These get ANDed with a fixed, generic buying-intent word list (looking/need/recommend/hire/etc.) at search time specifically because long exact-phrase sentences rarely appear verbatim in real posts, verified directly against the live search API: a real campaign's ~20 buyer_keywords-style phrases returned zero matches in a one-week window, while a handful of these short terms ANDed with intent words returned 100. Keep these genuinely short — 3 words is already long for this field.
-- target_subreddits: plausible Reddit community names (no "r/" prefix, just the name) where this business's target customers would plausibly discuss this need, based on general knowledge. These are unverified suggestions for a human to check, not confirmed facts.
-- excluded_terms: terms likely to cause false positives for this specific business — competitor names actually mentioned on the page, job-seeking/hiring language, industry jargon used by professionals rather than customers, unrelated meanings of ambiguous words on the page.
-- If the scraped content is too thin, generic, or unclear to confidently tell what this business actually sells or who it serves, return short or empty arrays rather than guessing or padding with generic filler. Fewer honest suggestions beat more fabricated ones — the same zero-fabrication standard the rest of Scout holds to.
-- Every array item: lowercase, concise (a few words), no surrounding quotes or punctuation.`;
+- Ground every field in what the scraped content actually says. Never invent an industry, service, or audience the content doesn't support.
+- businessType/whatYouSell/problemsSolved/idealCustomer: plain, concrete, specific sentences — not marketing taglines copied verbatim from the page, not generic industry boilerplate. Write them the way a founder would describe their own business in a sentence or two to a new hire.
+- geography: only fill this in if the page actually states a specific city/region this business serves. Leave it null for anything that reads as remote/nationwide/unclear — a guessed location is worse than no location.
+- excludedAudiences: only fill this in if the page itself signals something specific (a stated niche, an explicit "not for X"). Leave it null rather than inventing a plausible-sounding exclusion.
+- If the scraped content is too thin, generic, or unclear to confidently tell what this business actually sells or who it serves, set confident to false and keep the other fields short and honest rather than padding or guessing. The same zero-fabrication standard the rest of Scout holds to applies here.`;
 }
 
-export async function generateEnrichmentSuggestions(site: ScrapedSite): Promise<EnrichmentResult> {
+export async function analyzeSiteForOffer(site: ScrapedSite): Promise<SiteAnalysisResult> {
   const client = getGeminiClient();
 
   const userContent = [
@@ -38,7 +48,7 @@ export async function generateEnrichmentSuggestions(site: ScrapedSite): Promise<
     config: {
       systemInstruction: buildSystemPrompt(),
       responseMimeType: "application/json",
-      responseSchema: enrichmentResponseSchema,
+      responseSchema: siteAnalysisResponseSchema,
     },
   });
 
@@ -52,7 +62,7 @@ export async function generateEnrichmentSuggestions(site: ScrapedSite): Promise<
     throw new Error("Scout's website analysis result was not valid JSON.");
   }
 
-  const parsed = enrichmentResultSchema.safeParse(json);
+  const parsed = siteAnalysisResultSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error(`Scout's website analysis result failed validation: ${parsed.error.message}`);
   }

@@ -110,45 +110,44 @@ export const engagementResponseSchema: Schema = {
   required: ["strategy", "strategy_reason", "avoid_guidance", "comment_draft", "comment_why", "dm_draft", "dm_why"],
 };
 
-export const enrichmentResultSchema = z.object({
-  buyer_keywords: z.array(z.string()).max(15),
-  topic_terms: z.array(z.string()).max(8),
-  target_subreddits: z.array(z.string()).max(15),
-  excluded_terms: z.array(z.string()).max(15),
+/**
+ * Website -> Offer profile, not a keyword list. Earlier versions of this
+ * schema produced buyer_keywords/topic_terms designed to be ANDed with a
+ * fixed intent-word list at search time — the same narrow-retrieval pattern
+ * already removed from the real discovery engine (lib/sources/
+ * searchOrchestrator.ts). Scanning a website should feed the same Offer
+ * fields a human fills in by hand (lib/actions/{onboarding,settings}.ts),
+ * which is what actually drives lib/ai/discovery.ts's broad concept
+ * generation — not a second, parallel, narrower vocabulary of its own.
+ */
+export const siteAnalysisResultSchema = z.object({
+  confident: z.boolean(),
+  businessType: z.string().max(120),
+  whatYouSell: z.string().max(500),
+  problemsSolved: z.string().max(500),
+  idealCustomer: z.string().max(500),
+  geography: z.string().max(300).nullable(),
+  excludedAudiences: z.string().max(300).nullable(),
 });
 
-export type EnrichmentResult = z.infer<typeof enrichmentResultSchema>;
+export type SiteAnalysisResult = z.infer<typeof siteAnalysisResultSchema>;
 
-/** Website → keyword/topic/subreddit/exclusion suggestions for campaign setup. Suggestions only — never auto-saved. */
-export const enrichmentResponseSchema: Schema = {
+/** Website -> Offer profile suggestion for onboarding/settings. Suggestion only — never auto-saved without review. */
+export const siteAnalysisResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    buyer_keywords: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      maxItems: "15",
-      description: "Short phrases a real prospect would type when they have a live need this business could serve — not marketing language.",
+    confident: {
+      type: Type.BOOLEAN,
+      description: "False if the page genuinely doesn't give you enough to infer what this business sells and who it serves — in that case the other fields can be short/generic placeholders; a human will fill in the gaps.",
     },
-    topic_terms: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      maxItems: "8",
-      description: "1-3 word core nouns for what this business sells (e.g. \"personal trainer\", \"fitness coach\"), NOT full sentences — these get combined with generic buying-intent words at search time, so they need to be short to be useful.",
-    },
-    target_subreddits: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      maxItems: "15",
-      description: "Plausible subreddit names (no r/ prefix) where this business's target customers would discuss this need. Unverified suggestions.",
-    },
-    excluded_terms: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      maxItems: "15",
-      description: "Terms likely to cause false positives — competitor names, job-seeking language, industry jargon used by professionals rather than customers.",
-    },
+    businessType: { type: Type.STRING, description: "Short label, e.g. \"Online personal training\" — matches the free-text field a human would type in onboarding." },
+    whatYouSell: { type: Type.STRING, description: "1-2 plain sentences: what this business actually sells/does." },
+    problemsSolved: { type: Type.STRING, description: "1-2 plain sentences: the real, specific problems this business solves for a customer." },
+    idealCustomer: { type: Type.STRING, description: "1-2 plain sentences describing who this business actually serves." },
+    geography: { type: Type.STRING, nullable: true, description: "A specific city/region the page states this business serves, if any. Null if the business is remote/anywhere or the page doesn't say." },
+    excludedAudiences: { type: Type.STRING, nullable: true, description: "Only if the page itself signals a real exclusion (e.g. \"not for beginners\", a stated niche). Null rather than guessed." },
   },
-  required: ["buyer_keywords", "topic_terms", "target_subreddits", "excluded_terms"],
+  required: ["confident", "businessType", "whatYouSell", "problemsSolved", "idealCustomer", "geography", "excludedAudiences"],
 };
 
 export function priorityTierFromMatchScore(matchScore: number): "high" | "potential" | "low" {

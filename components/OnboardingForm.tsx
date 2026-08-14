@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { VerticalTemplate } from "@/lib/verticals";
 import { completeOnboardingAction, type OnboardingFormState } from "@/lib/actions/onboarding";
+import { WebsiteOfferScanner, type SiteOfferSuggestion } from "@/components/WebsiteOfferScanner";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -24,9 +25,19 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
     undefined
   );
   const [selected, setSelected] = useState<VerticalTemplate>(templates[0]!);
+  const [suggestion, setSuggestion] = useState<SiteOfferSuggestion | null>(null);
+  const [rev, setRev] = useState(0);
+  const fieldKey = (prefix: string) => `${prefix}-${selected.key}-${rev}`;
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
+      <WebsiteOfferScanner
+        onSuggestion={(s) => {
+          setSuggestion(s);
+          setRev((r) => r + 1);
+        }}
+      />
+
       <div>
         <p className="text-sm font-medium mb-2">Closest to your business</p>
         <input type="hidden" name="verticalTemplateKey" value={selected.key} />
@@ -52,8 +63,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Business type
         <input
           name="businessType"
-          defaultValue={selected.label !== "Other" ? selected.label : ""}
-          key={`bt-${selected.key}`}
+          defaultValue={suggestion?.businessType || (selected.label !== "Other" ? selected.label : "")}
+          key={fieldKey("bt")}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Online strength coaching"
         />
@@ -64,8 +75,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         <textarea
           name="whatYouSell"
           required
-          key={`wys-${selected.key}`}
-          defaultValue={selected.exampleWhatYouSell}
+          key={fieldKey("wys")}
+          defaultValue={suggestion?.whatYouSell || selected.exampleWhatYouSell}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -75,8 +86,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         What problems do you solve?
         <textarea
           name="problemsSolved"
-          key={`ps-${selected.key}`}
-          defaultValue={selected.exampleProblemsSolved}
+          key={fieldKey("ps")}
+          defaultValue={suggestion?.problemsSolved || selected.exampleProblemsSolved}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -87,8 +98,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         <textarea
           name="idealCustomer"
           required
-          key={`ic-${selected.key}`}
-          defaultValue={selected.exampleIdealCustomer}
+          key={fieldKey("ic")}
+          defaultValue={suggestion?.idealCustomer || selected.exampleIdealCustomer}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -119,6 +130,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Geographic constraints (optional)
         <input
           name="geography"
+          key={fieldKey("geo")}
+          defaultValue={suggestion?.geography ?? ""}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Must be in Texas, or leave blank for remote/anywhere"
         />
@@ -128,6 +141,8 @@ export function OnboardingForm({ templates }: { templates: VerticalTemplate[] })
         Who should Scout exclude? (optional)
         <input
           name="excludedAudiences"
+          key={fieldKey("excl")}
+          defaultValue={suggestion?.excludedAudiences ?? ""}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Agencies looking to subcontract, students, competitors"
         />

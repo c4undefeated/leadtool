@@ -14,7 +14,6 @@ import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTim
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
-import { WebsiteEnrichmentPanel } from "@/components/WebsiteEnrichmentPanel";
 import { LeadRecencySelector } from "@/components/LeadRecencySelector";
 
 // A live scan can run several Gemini analysis calls (bounded-concurrency,
@@ -48,9 +47,14 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const disabledReason = scanDisabledReason({ sourceType: campaign.sourceType, aiReady, healthStatus: health.status });
   const vertical = campaign.company.offer ? getVerticalTemplate(campaign.company.offer.verticalTemplateKey) : null;
 
-  const keywords = campaign.keywords.filter((k) => k.type === "keyword");
+  // "keyword" and "topic" used to be treated differently at search time
+  // (topics were AND'd with a fixed intent-word list; keywords weren't).
+  // That distinction is gone — buildBaselineQuery now OR's both together
+  // unconditionally — so they're shown as one merged "precision terms"
+  // list. New adds always save as type "keyword"; existing "topic" rows
+  // from before this change still display and search exactly the same.
+  const precisionTerms = campaign.keywords.filter((k) => k.type === "keyword" || k.type === "topic");
   const communities = campaign.keywords.filter((k) => k.type === "subreddit");
-  const topics = campaign.keywords.filter((k) => k.type === "topic");
 
   // Discovery-pool summary — a real, honest view of the rotation pool
   // ("these are seeds, not the whole universe" made concrete), not just copy.
@@ -128,62 +132,116 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         )}
       </section>
 
-      <WebsiteEnrichmentPanel campaignId={campaign.id} sourceType={campaign.sourceType} />
+      {campaign.sourceType === "reddit" && (
+        <section className="rounded-lg border border-line bg-surface p-5">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <h2 className="font-medium text-sm">Scout's discovery profile</h2>
+            <form action={regenerateDiscoveryTermsAction}>
+              <input type="hidden" name="campaignId" value={campaign.id} />
+              <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline">
+                Regenerate
+              </button>
+            </form>
+          </div>
+          {campaign.discoveryTerms.length > 0 ? (
+            <>
+              <p className="text-sm text-muted mb-4">
+                Scout read your offer profile (Settings → Offer) and generated{" "}
+                <span className="text-ink">{campaign.discoveryTerms.length}</span> discovery concepts — the
+                language a real prospect might actually use, not necessarily your own words — and rotates a
+                batch of them into every scan. This is the primary way Scout finds people, not the precision
+                terms below. Concepts that keep finding real opportunities get prioritized; ones that don't
+                fade without ever being fully dropped.
+              </p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {Array.from(discoveryCategoryCounts.entries()).map(([category, count]) => (
+                  <span key={category} className="pill pill-neutral">
+                    {DISCOVERY_CATEGORY_LABELS[category] ?? category}: {count}
+                  </span>
+                ))}
+              </div>
+
+              {topPerformers.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Top performers</p>
+                  <div className="flex flex-col gap-1 mb-4">
+                    {topPerformers.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between text-sm">
+                        <span>{t.term}</span>
+                        <span className="text-xs font-mono text-muted">
+                          {t.opportunitiesFound} opportunit{t.opportunitiesFound === 1 ? "y" : "ies"} / {t.candidatesFound} found
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {untested.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Not tested yet</p>
+                  <p className="text-xs text-muted mb-1">
+                    {untested
+                      .slice(0, 8)
+                      .map((t) => t.term)
+                      .join(" · ")}
+                    {untested.length > 8 ? ` · +${untested.length - 8} more` : ""}
+                  </p>
+                </>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted">
+              No discovery concepts generated yet — run a scan (or finish your offer profile in Settings →
+              Offer first) to have Scout build one.
+            </p>
+          )}
+
+          {campaign.scanRuns.length > 0 && (
+            <>
+              <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2 mt-4">Recent scans</p>
+              <div className="flex flex-col gap-1">
+                {campaign.scanRuns.map((run) => (
+                  <p key={run.id} className="text-xs font-mono text-muted">
+                    {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
+                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed →{" "}
+                    <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
+                    {run.opportunitiesCreated === 1 ? "y" : "ies"}
+                    {run.providerErrors > 0 || run.aiErrors > 0
+                      ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
+                      : ""}
+                  </p>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="rounded-lg border border-line bg-surface p-5">
-        <h2 className="font-medium text-sm mb-3">What Scout is looking for</h2>
-        <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Keywords</p>
+        <h2 className="font-medium text-sm mb-1">Precision terms (optional)</h2>
+        <p className="text-sm text-muted mb-3">
+          Exact phrases you already know are worth searching, always included alongside Scout's own discovery
+          concepts above. Not required — Scout's discovery profile is what does most of the work.
+        </p>
         <div className="flex flex-col gap-2 mb-4">
-          {keywords.map((k) => (
+          {precisionTerms.map((k) => (
             <KeywordRow key={k.id} keyword={k} campaignId={campaign.id} />
           ))}
-          {keywords.length === 0 && <p className="text-sm text-muted">No keywords yet.</p>}
+          {precisionTerms.length === 0 && <p className="text-sm text-muted">None yet.</p>}
         </div>
-        <form action={addKeywordAction} className="flex gap-2 mb-2">
+        <form action={addKeywordAction} className="flex gap-2 mb-4">
           <input type="hidden" name="campaignId" value={campaign.id} />
           <input type="hidden" name="type" value="keyword" />
           <input
             name="term"
-            placeholder="Add a keyword or phrase"
+            placeholder="Add a phrase, e.g. personal trainer pinehurst nc"
             className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
           />
           <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
             Add
           </button>
         </form>
-        <p className="text-xs text-muted mb-4">
-          Type your own, or use "Analyze website for auto-keywords" above to have Scout pick them from your
-          site's own copy — either works, and you can mix both.
-        </p>
-
-        {campaign.sourceType === "reddit" && (
-          <>
-            <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Topic terms</p>
-            <p className="text-xs text-muted mb-2">
-              Short, broad terms (e.g. "personal trainer", not "looking for a personal trainer near me") —
-              combined with common buying-intent words to cast a wider net across all of Reddit than your
-              exact keyword phrases alone. Optional; leave empty to search on keywords only.
-            </p>
-            <div className="flex flex-col gap-2 mb-4">
-              {topics.map((k) => (
-                <KeywordRow key={k.id} keyword={k} campaignId={campaign.id} />
-              ))}
-              {topics.length === 0 && <p className="text-sm text-muted">No topic terms yet.</p>}
-            </div>
-            <form action={addKeywordAction} className="flex gap-2 mb-4">
-              <input type="hidden" name="campaignId" value={campaign.id} />
-              <input type="hidden" name="type" value="topic" />
-              <input
-                name="term"
-                placeholder="e.g. personal trainer"
-                className="flex-1 rounded-md border border-line bg-surface px-3 py-2 text-sm"
-              />
-              <button type="submit" className="rounded-md border border-line px-3 py-2 text-sm">
-                Add
-              </button>
-            </form>
-          </>
-        )}
 
         {campaign.sourceType !== "twitter" && (
           <>
@@ -225,91 +283,6 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </button>
         </form>
       </section>
-
-      {campaign.sourceType === "reddit" && (
-        <section className="rounded-lg border border-line bg-surface p-5">
-          <div className="flex items-start justify-between gap-4 mb-1">
-            <h2 className="font-medium text-sm">Discovery pool</h2>
-            <form action={regenerateDiscoveryTermsAction}>
-              <input type="hidden" name="campaignId" value={campaign.id} />
-              <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline">
-                Regenerate
-              </button>
-            </form>
-          </div>
-          {campaign.discoveryTerms.length > 0 ? (
-            <>
-              <p className="text-sm text-muted mb-4">
-                Your keywords and topics above are seeds, not the whole search. Scout also generated{" "}
-                <span className="text-ink">{campaign.discoveryTerms.length}</span> discovery concepts from your
-                offer profile — the language a real prospect might use, not necessarily your own words — and
-                rotates a batch of them into every scan. Concepts that keep finding real opportunities get
-                prioritized; ones that don't fade without ever being fully dropped.
-              </p>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {Array.from(discoveryCategoryCounts.entries()).map(([category, count]) => (
-                  <span key={category} className="pill pill-neutral">
-                    {DISCOVERY_CATEGORY_LABELS[category] ?? category}: {count}
-                  </span>
-                ))}
-              </div>
-
-              {topPerformers.length > 0 && (
-                <>
-                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Top performers</p>
-                  <div className="flex flex-col gap-1 mb-4">
-                    {topPerformers.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between text-sm">
-                        <span>{t.term}</span>
-                        <span className="text-xs font-mono text-muted">
-                          {t.opportunitiesFound} opportunit{t.opportunitiesFound === 1 ? "y" : "ies"} / {t.candidatesFound} found
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {untested.length > 0 && (
-                <>
-                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Not tested yet</p>
-                  <p className="text-xs text-muted mb-1">
-                    {untested
-                      .slice(0, 8)
-                      .map((t) => t.term)
-                      .join(" · ")}
-                    {untested.length > 8 ? ` · +${untested.length - 8} more` : ""}
-                  </p>
-                </>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted">
-              No discovery concepts generated yet — run a scan (or finish your offer profile in Settings first)
-              to have Scout build one.
-            </p>
-          )}
-
-          {campaign.scanRuns.length > 0 && (
-            <>
-              <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2 mt-4">Recent scans</p>
-              <div className="flex flex-col gap-1">
-                {campaign.scanRuns.map((run) => (
-                  <p key={run.id} className="text-xs font-mono text-muted">
-                    {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
-                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed →{" "}
-                    <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
-                    {run.opportunitiesCreated === 1 ? "y" : "ies"}
-                    {run.providerErrors > 0 || run.aiErrors > 0
-                      ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
-                      : ""}
-                  </p>
-                ))}
-              </div>
-            </>
-          )}
-        </section>
-      )}
 
       <section className="rounded-lg border border-line bg-surface p-5">
         <h2 className="font-medium text-sm mb-1">Manual import — validation track</h2>

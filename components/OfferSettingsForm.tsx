@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { VerticalTemplate } from "@/lib/verticals";
 import { updateOfferSettingsAction, type OfferSettingsState } from "@/lib/actions/settings";
+import { WebsiteOfferScanner, type SiteOfferSuggestion } from "@/components/WebsiteOfferScanner";
 
 type OfferValues = {
   verticalTemplateKey: string;
@@ -37,9 +38,19 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
   const [selected, setSelected] = useState<VerticalTemplate>(
     templates.find((t) => t.key === offer.verticalTemplateKey) ?? templates[0]!
   );
+  const [suggestion, setSuggestion] = useState<SiteOfferSuggestion | null>(null);
+  const [rev, setRev] = useState(0);
+  const fieldKey = (prefix: string) => `${prefix}-${rev}`;
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
+      <WebsiteOfferScanner
+        onSuggestion={(s) => {
+          setSuggestion(s);
+          setRev((r) => r + 1);
+        }}
+      />
+
       <div>
         <p className="text-sm font-medium mb-2">Closest to your business</p>
         <input type="hidden" name="verticalTemplateKey" value={selected.key} />
@@ -65,7 +76,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         Business type
         <input
           name="businessType"
-          defaultValue={offer.businessType}
+          key={fieldKey("bt")}
+          defaultValue={suggestion?.businessType || offer.businessType}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Online strength coaching"
         />
@@ -76,7 +88,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         <textarea
           name="whatYouSell"
           required
-          defaultValue={offer.whatYouSell}
+          key={fieldKey("wys")}
+          defaultValue={suggestion?.whatYouSell || offer.whatYouSell}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -86,7 +99,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         What problems do you solve?
         <textarea
           name="problemsSolved"
-          defaultValue={offer.problemsSolved}
+          key={fieldKey("ps")}
+          defaultValue={suggestion?.problemsSolved || offer.problemsSolved}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -97,7 +111,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         <textarea
           name="idealCustomer"
           required
-          defaultValue={offer.idealCustomer}
+          key={fieldKey("ic")}
+          defaultValue={suggestion?.idealCustomer || offer.idealCustomer}
           rows={2}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
         />
@@ -130,7 +145,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         Geographic constraints (optional)
         <input
           name="geography"
-          defaultValue={offer.geography ?? ""}
+          key={fieldKey("geo")}
+          defaultValue={suggestion?.geography ?? offer.geography ?? ""}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Must be in Texas, or leave blank for remote/anywhere"
         />
@@ -140,7 +156,8 @@ export function OfferSettingsForm({ templates, offer }: { templates: VerticalTem
         Who should Scout exclude? (optional)
         <input
           name="excludedAudiences"
-          defaultValue={offer.excludedAudiences ?? ""}
+          key={fieldKey("excl")}
+          defaultValue={suggestion?.excludedAudiences ?? offer.excludedAudiences ?? ""}
           className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-2"
           placeholder="e.g. Agencies looking to subcontract, students, competitors"
         />

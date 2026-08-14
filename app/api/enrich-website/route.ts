@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { scrapeWebsite } from "@/lib/enrichment/scrapeWebsite";
-import { generateEnrichmentSuggestions } from "@/lib/ai/enrichment";
+import { analyzeSiteForOffer } from "@/lib/ai/enrichment";
 import { AiNotConfiguredError } from "@/lib/ai/client";
 
 // Scrape (network I/O, up to a few redirects) + one Gemini call — bounded,
@@ -38,14 +38,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const suggestions = await generateEnrichmentSuggestions(site);
+    const suggestion = await analyzeSiteForOffer(site);
     return NextResponse.json({
       siteTitle: site.title,
       siteDescription: site.description,
-      buyerKeywords: suggestions.buyer_keywords,
-      topicTerms: suggestions.topic_terms,
-      targetSubreddits: suggestions.target_subreddits,
-      excludedTerms: suggestions.excluded_terms,
+      ...suggestion,
     });
   } catch (err) {
     if (err instanceof AiNotConfiguredError) {
