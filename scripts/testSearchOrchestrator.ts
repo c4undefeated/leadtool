@@ -14,7 +14,7 @@
  *
  * Run with: npm run test:search-orchestrator
  */
-import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds, buildCommunityBonusJobs } from "@/lib/sources/searchOrchestrator";
+import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds, attributeTermIds, buildCommunityBonusJobs } from "@/lib/sources/searchOrchestrator";
 import type { DiscoveryTerm } from "@prisma/client";
 import type { RedditapisPost } from "@/lib/providers/redditapis/service";
 
@@ -209,6 +209,22 @@ function main() {
     "attribution: no literal match falls back to crediting the whole batch",
     noMatch.length === 2 && noMatch.includes("t1") && noMatch.includes("t2"),
     `got: ${JSON.stringify(noMatch)}`,
+  );
+
+  // --- attributeTermIds (shared, source-agnostic attribution — X's
+  // runXDiscovery calls this directly on tweet text; matchedTermIds above
+  // is just Reddit's post-shaped wrapper around the same logic) ---
+  const xLiteralMatch = attributeTermIds("3 months in and my hybrid workout plans still aren't working", batchTerms);
+  check(
+    "attributeTermIds: literal substring match credits the specific term (plain text, no post/tweet shape needed)",
+    xLiteralMatch.length === 1 && xLiteralMatch[0] === "t1",
+    `got: ${JSON.stringify(xLiteralMatch)}`,
+  );
+  const xNoMatch = attributeTermIds("dropping my free resource doc for anyone who wants it", batchTerms);
+  check(
+    "attributeTermIds: no literal match falls back to crediting the whole batch, same as matchedTermIds",
+    xNoMatch.length === 2 && xNoMatch.includes("t1") && xNoMatch.includes("t2"),
+    `got: ${JSON.stringify(xNoMatch)}`,
   );
 
   // --- buildCommunityBonusJobs (multi-community precision-boost rotation) ---

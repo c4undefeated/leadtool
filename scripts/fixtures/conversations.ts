@@ -248,6 +248,44 @@ export const EVAL_CASES: EvalCase[] = [
     },
   },
   {
+    id: "indirect-need-3-twitter",
+    category: "indirect-need",
+    offer: INDIRECT_NEED_OFFER,
+    expectOpportunity: true,
+    notes:
+      "X/Twitter parity proof #1: the same indirect-need principle as indirect-need-1/2, but on a tweet-shaped NormalizedConversation (source: \"twitter\", title: null, short informal text, no community) — proves the shared Gemini qualification engine finds genuine need from a broad discovery match regardless of which source produced the NormalizedConversation, not just Reddit's.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-indirect-need-3",
+      authorRef: "@newtothegym22",
+      title: null,
+      originalText:
+        "3 months into working out consistently and my arms genuinely haven't changed at all. starting to think whatever I'm doing off youtube videos is just wrong lol. no idea how to actually fix this",
+      url: "https://x.com/newtothegym22/status/tw-indirect-need-3",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "broad-topic-no-need-2-twitter",
+    category: "broad-topic-no-need",
+    offer: INDIRECT_NEED_OFFER,
+    expectOpportunity: false,
+    notes:
+      "X/Twitter parity proof #2: broad discovery would legitimately surface this tweet (same \"workout plan\" topic language as indirect-need-3-twitter), but it's a resource share with no personal need — proves broad X discovery does not auto-create an opportunity for casual/promotional topic-adjacent content, same standard as broad-topic-no-need-1 on Reddit.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-broad-topic-no-need-2",
+      authorRef: "@fitthreads",
+      title: null,
+      originalText:
+        "dropping my full free workout plan doc below — beginner, intermediate, and advanced templates, take whatever you need 💪 retweet if useful for someone",
+      url: "https://x.com/fitthreads/status/tw-broad-topic-no-need-2",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
     id: "broad-topic-no-need-1",
     category: "broad-topic-no-need",
     offer: INDIRECT_NEED_OFFER,

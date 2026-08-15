@@ -1,6 +1,7 @@
 import type { NormalizedConversation, RateLimitStatus, SearchParams, SourceAdapter, SourceHealth } from "./types";
 import * as twitterapis from "@/lib/providers/twitterapis/service";
 import type { Tweet } from "@/lib/providers/twitterapis/service";
+import { runXDiscovery, type DiscoveredTweet } from "./searchOrchestrator";
 
 /**
  * X/Twitter, backed by TwitterAPIs (api.twitterapis.com) — a third-party
@@ -9,7 +10,9 @@ import type { Tweet } from "@/lib/providers/twitterapis/service";
  * external dependency IntentScout monitors (see
  * lib/providers/twitterapis/health.ts), not something this codebase
  * asserts or vouches for. Mirrors lib/sources/redditApisAdapter.ts by
- * design — same governance, same shape, different provider.
+ * design — same governance, same discovery architecture (precision layer +
+ * rotated AI-generated discovery-term batches, see
+ * ./searchOrchestrator.ts's runXDiscovery), different provider.
  *
  * READ-ONLY, permanently: this adapter only calls the documented GET
  * search endpoint and the free account check. It never registers an X
@@ -21,7 +24,9 @@ import type { Tweet } from "@/lib/providers/twitterapis/service";
  *
  * All provider calls are budgeted, cost-logged, and short-TTL cached
  * through lib/providers/twitterapis/service.ts — this file never talks to
- * TwitterAPIs directly.
+ * TwitterAPIs directly, and this file itself never decides what to search
+ * for — that's runXDiscovery's job, same division of responsibility as the
+ * Reddit adapter.
  */
 export class TwitterApisSourceAdapter implements SourceAdapter {
   readonly type = "twitter";
@@ -45,31 +50,42 @@ export class TwitterApisSourceAdapter implements SourceAdapter {
   }
 
   async search(params: SearchParams): Promise<NormalizedConversation[]> {
-    const query = params.keywords.join(" OR ");
-    if (!query) return [];
-
     // Unlike Reddit, advanced_search has no documented "scope to a
     // community" operator — X doesn't have a subreddit-equivalent among
     // the documented query operators (from:/to:/since:/until:/min_faves:/
     // lang:). So campaign "communities" simply don't apply here; nothing
     // is silently dropped, there's just no real analog to map them to.
-    const context = { campaignId: params.campaignId, companyId: params.companyId };
-    const response = await twitterapis.searchTweets({ query, product: "Latest" }, context);
-
+    // params.communities is deliberately not read below.
     const maxAgeHours = params.maxAgeHours ?? 24;
+
+    const discovery = await runXDiscovery({
+      campaignId: params.campaignId ?? "",
+      companyId: params.companyId,
+      keywords: params.keywords,
+      topics: params.topics,
+      maxAgeHours,
+      scanRunId: params.scanRunId,
+    });
+
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
-    const recentTweets = response.tweets.filter((tweet) => {
-      const postedMs = Date.parse(tweet.created_at);
+    const recent = discovery.tweets.filter((d) => {
+      const postedMs = Date.parse(d.tweet.created_at);
       // An unparseable timestamp is excluded rather than assumed-fresh —
       // never fabricate recency for something we couldn't actually verify.
       return !Number.isNaN(postedMs) && postedMs >= cutoff;
     });
 
-    return recentTweets.map(normalizeTweet);
+    const batchSummary = discovery.batchesRun.map((b) => `${b.kind}:${b.rawCount}`).join(", ");
+    console.log(
+      `[TwitterApisSourceAdapter] campaign ${params.campaignId ?? "?"}: planned ${discovery.searchesPlanned} quer${discovery.searchesPlanned === 1 ? "y" : "ies"}, ran ${discovery.batchesRun.length}${discovery.searchesSkippedBudget > 0 ? ` (${discovery.searchesSkippedBudget} skipped — budget exhausted)` : ""} covering ${discovery.discoveryTermsUsed} discovery term(s) (${batchSummary}) -> ${discovery.tweets.length} unique tweet(s), ${recent.length} within the ${maxAgeHours}h window` +
+        (discovery.errors.length > 0 ? ` (${discovery.errors.length} quer${discovery.errors.length === 1 ? "y" : "ies"} failed: ${discovery.errors.join("; ")})` : ""),
+    );
+
+    return recent.map((d) => normalizeTweet(d.tweet, d.foundBy));
   }
 }
 
-function normalizeTweet(tweet: Tweet): NormalizedConversation {
+function normalizeTweet(tweet: Tweet, foundBy: DiscoveredTweet["foundBy"]): NormalizedConversation {
   return {
     source: "twitter",
     sourceId: tweet.id,
@@ -79,6 +95,7 @@ function normalizeTweet(tweet: Tweet): NormalizedConversation {
     url: `https://x.com/${tweet.author.username}/status/${tweet.id}`,
     community: null,
     postedAt: new Date(Date.parse(tweet.created_at)),
+    foundByTerms: foundBy,
     metadata: {
       twitterId: tweet.id,
       authorName: tweet.author.name,

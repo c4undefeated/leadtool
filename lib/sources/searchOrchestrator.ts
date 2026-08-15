@@ -2,23 +2,37 @@ import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import * as redditapis from "@/lib/providers/redditapis/service";
 import { RedditapisBudgetExceededError, type RedditapisPost } from "@/lib/providers/redditapis/service";
+import * as twitterapis from "@/lib/providers/twitterapis/service";
+import { TwitterApisBudgetExceededError, type Tweet } from "@/lib/providers/twitterapis/service";
 import { generateDiscoveryTerms, hashOfferForDiscovery, DISCOVERY_PROMPT_VERSION } from "@/lib/ai/discovery";
 import type { DiscoveryTerm, Offer } from "@prisma/client";
 
 /**
  * Retrieval architecture: broad discovery -> semantic qualification.
  *
- * This module owns discovery retrieval for Reddit: the "precision" layer
- * (a campaign's own manual keywords/topics, always-on) plus a rotated,
- * budget-respecting batch of individually-tracked AI-generated discovery
- * terms (lib/ai/discovery.ts). lib/sources/redditApisAdapter.ts stays a
- * thin execution/normalization layer that calls runDiscovery() and turns
- * whatever it returns into NormalizedConversation[] — it does not decide
- * what to search for. lib/providers/redditapis/service.ts remains the ONLY
- * thing that ever calls the Redditapis client — every query this module
- * runs goes through searchRedditapis(), so cache -> budget -> network ->
- * ledger is preserved exactly as before, just called more than once per
- * scan.
+ * This module owns discovery retrieval for BOTH live sources — Reddit
+ * (runDiscovery, below) and X/Twitter (runXDiscovery, further down) — on
+ * the same architecture: a "precision" layer (a campaign's own manual
+ * keywords/topics, always-on) plus a rotated, budget-respecting batch of
+ * individually-tracked AI-generated discovery terms (lib/ai/discovery.ts).
+ * The DiscoveryTerm pool itself is fully source-agnostic — it's generated
+ * once per campaign from the Offer alone (lib/ai/discovery.ts never reads
+ * anything source-specific) — so the same pool, the same rankTerms/
+ * packTermBatches/buildBaselineQuery pure functions, and the same
+ * ensureDiscoveryTerms staleness logic serve whichever source is active.
+ * What differs between the two runDiscovery/runXDiscovery functions is only
+ * the actual provider call shape (Reddit: subreddit/sort/time-window/
+ * limit-up-to-100; X: no communities, ~20-tweet pages, cursor pagination)
+ * and which provider's budget/cache/ledger service module they call through
+ * — lib/providers/redditapis/service.ts and lib/providers/twitterapis/
+ * service.ts respectively, never the raw client in either case, so
+ * cache -> budget -> network -> ledger is preserved for every single call
+ * regardless of source.
+ *
+ * lib/sources/redditApisAdapter.ts and lib/sources/twitterApisAdapter.ts
+ * both stay thin execution/normalization layers that call their
+ * orchestrator function and turn whatever it returns into
+ * NormalizedConversation[] — neither adapter decides what to search for.
  *
  * Precision layer: the campaign's manual keyword/topic phrases, unconditionally
  * OR'd together. No fixed intent-word gate — Gemini alone judges intent,
@@ -29,11 +43,11 @@ import type { DiscoveryTerm, Offer } from "@prisma/client";
  * see lib/ai/discovery.ts) are individually ranked (rankTerms) and the
  * highest-scoring ones this scan are packed into a small, bounded number of
  * OR-grouped provider calls (packTermBatches) — enough terms to matter,
- * few enough calls to stay cheap. A returned post is attributed to whichever
- * specific term(s) in its batch literally appear in its text; when none do
- * (Redditapis's own relevance matching isn't a literal substring match
- * either), credit is honestly spread across the whole batch rather than
- * guessed at.
+ * few enough calls to stay cheap. A returned post/tweet is attributed to
+ * whichever specific term(s) in its batch literally appear in its text;
+ * when none do (neither provider's own relevance matching is a literal
+ * substring match), credit is honestly spread across the whole batch rather
+ * than guessed at (see attributeTermIds).
  */
 
 const MAX_PHRASE_GROUP_LENGTH = 400;
@@ -160,15 +174,23 @@ export function rankTerms(terms: DiscoveryTerm[]): RankedTerm[] {
 
 /**
  * Best-effort attribution: which specific term(s) in this batch's OR query
- * actually appear in the returned post's own text. Falls back to crediting
- * every term in the batch when none literally match — Redditapis's own
- * relevance search isn't a literal substring match either, so "we can't
+ * actually appear in the returned item's own text. Falls back to crediting
+ * every term in the batch when none literally match — neither provider's
+ * relevance search is a literal substring match either, so "we can't
  * isolate which term caused this hit" is an honest outcome, not a bug.
+ * Source-agnostic by design (plain text in, ids out) so both runDiscovery
+ * (Reddit) and runXDiscovery (X) share exactly one attribution rule instead
+ * of each guessing independently.
  */
-export function matchedTermIds(post: RedditapisPost, batchTerms: TermRef[]): string[] {
-  const text = `${post.title ?? ""} ${post.text ?? ""}`.toLowerCase();
-  const matched = batchTerms.filter((t) => text.includes(t.term.toLowerCase())).map((t) => t.id);
+export function attributeTermIds(text: string, batchTerms: TermRef[]): string[] {
+  const lower = text.toLowerCase();
+  const matched = batchTerms.filter((t) => lower.includes(t.term.toLowerCase())).map((t) => t.id);
   return matched.length > 0 ? matched : batchTerms.map((t) => t.id);
+}
+
+/** Reddit-specific convenience wrapper around attributeTermIds — kept for the existing call sites and tests. */
+export function matchedTermIds(post: RedditapisPost, batchTerms: TermRef[]): string[] {
+  return attributeTermIds(`${post.title ?? ""} ${post.text ?? ""}`, batchTerms);
 }
 
 // How many of the campaign's ranked discovery terms get a chance to run
@@ -220,6 +242,34 @@ const MAX_COMMUNITY_BONUS_BATCHES = Number(process.env.MAX_COMMUNITY_BONUS_BATCH
 // you actually want. Capped at 5 so a misconfiguration can't quietly
 // multiply every scan's precision-layer cost by an unbounded amount.
 const PRECISION_QUERY_PAGES = Math.min(5, Math.max(1, Number(process.env.PRECISION_QUERY_PAGES) || 1));
+
+// --- X/Twitter-specific tuning (runXDiscovery, below) ---
+// Same idea as DISCOVERY_TERMS_PER_SCAN above, independently configurable
+// because the two providers' economics differ (TwitterAPIs' documented
+// search endpoint is $0.0008/call flat — cheaper than Redditapis's
+// $0.002/call — but TwitterAPIs pages at a fixed ~20 tweets and does not
+// honor a custom count, so unlike Reddit, a single X call can't be made to
+// return more by raising a limit param; more real recall on X comes from
+// running more distinct queries and/or paginating each one, not a bigger
+// per-call limit).
+const X_DISCOVERY_TERMS_PER_SCAN = Number(process.env.X_DISCOVERY_TERMS_PER_SCAN) || 60;
+// Hard cap on discovery-layer provider calls per scan for X, same role as
+// MAX_DISCOVERY_BATCHES_PER_SCAN above. At $0.0008/call, 8 batches is
+// $0.0064/scan for the discovery layer — cheaper than Reddit's equivalent
+// even before pagination.
+const MAX_X_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_X_DISCOVERY_BATCHES_PER_SCAN) || 8;
+const X_SEARCH_CONCURRENCY = Number(process.env.X_SEARCH_CONCURRENCY) || 3;
+// Extra pages per X query (precision AND discovery batches alike — unlike
+// Reddit's precision-only pagination, X pages are fixed at ~20 tweets
+// regardless of query, so a single page is a much smaller sample of a
+// batch's real recall than Reddit's up-to-100-per-call, making pagination
+// the primary remaining recall lever for X rather than a secondary one).
+// Defaults to 1 (off), same conservative posture as PRECISION_QUERY_PAGES:
+// capability exists, but this deployment has no TWITTER_API_KEY configured
+// and no live-verified account balance to size a more aggressive default
+// against — raise via env var once a funded account's real economics are
+// known. Capped at 5 for the same reason as Reddit's equivalent.
+const X_QUERY_PAGES = Math.min(5, Math.max(1, Number(process.env.X_QUERY_PAGES) || 1));
 
 export type DiscoveryParams = {
   campaignId: string;
@@ -586,6 +636,234 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
 
   return {
     posts: Array.from(byId.values()),
+    batchesRun,
+    discoveryTermsUsed: usedTermIds.length,
+    searchesPlanned,
+    searchesSkippedBudget,
+    errors,
+  };
+}
+
+export type XDiscoveryParams = {
+  campaignId: string;
+  companyId?: string;
+  keywords: string[];
+  topics: string[];
+  /** Only used here to compute per-batch keptCount for DiscoveryTermRun rows — the real recency filter that actually governs what reaches ingestion still lives in twitterApisAdapter.ts, applied once to the final deduped set. */
+  maxAgeHours: number;
+  /** ScanRun to attach DiscoveryTermRun history to — optional so a caller not tracking scan-level metrics doesn't need to create one first. */
+  scanRunId?: string;
+};
+
+export type DiscoveredTweet = { tweet: Tweet; foundBy: string[] };
+
+export type XDiscoveryResult = {
+  tweets: DiscoveredTweet[];
+  /** No "community" kind here — X has no subreddit-equivalent scoping operator among TwitterAPIs' documented query params, so unlike Reddit there is no community-bonus job type to report. */
+  batchesRun: { kind: "precision" | "discovery"; termCount: number; query: string; rawCount: number }[];
+  discoveryTermsUsed: number;
+  searchesPlanned: number;
+  searchesSkippedBudget: number;
+  errors: string[];
+};
+
+/**
+ * X/Twitter's equivalent of runDiscovery() above — same precision-layer +
+ * rotated-discovery-batch architecture, same DiscoveryTerm pool (shared
+ * across sources, since it's generated from the Offer alone), same
+ * cache -> budget -> network -> ledger enforcement, just against
+ * lib/providers/twitterapis/service.ts instead of Redditapis's. Differs
+ * from runDiscovery only where the two providers genuinely differ:
+ * - No community/subreddit concept: TwitterAPIs' documented
+ *   advanced_search operators (from:/to:/since:/until:/min_faves:/lang:)
+ *   have no subreddit-equivalent, so there is no community-bonus job type
+ *   here, and buildCommunityBonusJobs is not called.
+ * - Pagination applies to every job (precision AND discovery), not just
+ *   precision, because TwitterAPIs pages at a fixed ~20 tweets per call
+ *   (not honoring a custom count) — a single page is a much smaller slice
+ *   of real recall than Reddit's up-to-100-per-call, so multi-page
+ *   coverage matters for every query kind here, not just the highest-
+ *   signal one.
+ * - Budget exhaustion is detected via TwitterApisBudgetExceededError
+ *   instead of RedditapisBudgetExceededError; everything else about the
+ *   honest partial-scan accounting (searchesPlanned/searchesSkippedBudget,
+ *   one DiscoveryTermRun row per planned job regardless of outcome) is
+ *   identical.
+ */
+export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscoveryResult> {
+  await ensureDiscoveryTerms(params.campaignId);
+
+  const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
+  const termRows = await prisma.discoveryTerm.findMany({ where: { campaignId: params.campaignId, active: true } });
+  const ranked = rankTerms(termRows).slice(0, X_DISCOVERY_TERMS_PER_SCAN);
+  const batches = packTermBatches(
+    ranked.map((r) => ({ id: r.term.id, term: r.term.term })),
+    MAX_X_DISCOVERY_BATCHES_PER_SCAN,
+    MAX_PHRASE_GROUP_LENGTH,
+  );
+
+  type Job = { kind: "precision" | "discovery"; termIds: string[]; termTexts: string[]; query: string };
+  const jobs: Job[] = [];
+  if (precisionQuery) jobs.push({ kind: "precision", termIds: [], termTexts: [], query: precisionQuery });
+  for (const b of batches) jobs.push({ kind: "discovery", termIds: b.termIds, termTexts: b.termTexts, query: b.query });
+
+  const searchesPlanned = jobs.length;
+
+  const byId = new Map<string, DiscoveredTweet>();
+  const batchesRun: XDiscoveryResult["batchesRun"] = [];
+  const errors: string[] = [];
+  const termHitCounts = new Map<string, number>();
+  const succeededTermIds = new Set<string>();
+  const runRows: {
+    termIds: string;
+    kind: "precision" | "discovery";
+    query: string;
+    rawCount: number;
+    keptCount: number;
+    cacheHit: boolean;
+    success: boolean;
+    errorMessage: string | null;
+  }[] = [];
+
+  let budgetExhausted = false;
+  let searchesSkippedBudget = 0;
+  const context = { campaignId: params.campaignId, companyId: params.companyId };
+  const cutoffMs = Date.now() - params.maxAgeHours * 60 * 60 * 1000;
+
+  await mapWithConcurrency(jobs, X_SEARCH_CONCURRENCY, async (job) => {
+    if (budgetExhausted) {
+      searchesSkippedBudget += 1;
+      runRows.push({
+        termIds: JSON.stringify(job.termIds),
+        kind: job.kind,
+        query: job.query,
+        rawCount: 0,
+        keptCount: 0,
+        cacheHit: false,
+        success: false,
+        errorMessage: "skipped: provider budget exhausted before this job's turn",
+      });
+      return;
+    }
+    try {
+      const recordPage = async (response: Awaited<ReturnType<typeof twitterapis.searchTweets>>) => {
+        const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
+        let keptCount = 0;
+        for (const tweet of response.tweets) {
+          const postedMs = Date.parse(tweet.created_at);
+          if (!Number.isNaN(postedMs) && postedMs >= cutoffMs) keptCount += 1;
+          const id = tweet.id;
+          const labels = job.kind === "precision" ? ["precision"] : attributeTermIds(tweet.text, batchTermRefs);
+          if (job.kind === "discovery") {
+            for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
+          }
+          const existing = byId.get(id);
+          if (existing) {
+            for (const l of labels) if (!existing.foundBy.includes(l)) existing.foundBy.push(l);
+          } else {
+            byId.set(id, { tweet, foundBy: [...labels] });
+          }
+        }
+
+        let cacheHit = false;
+        try {
+          const lastUsage = await prisma.providerUsageEvent.findFirst({
+            where: { campaignId: params.campaignId },
+            orderBy: { createdAt: "desc" },
+          });
+          cacheHit = lastUsage?.cacheHit ?? false;
+        } catch {
+          // metrics-only lookup — never worth failing the scan over
+        }
+
+        runRows.push({
+          termIds: JSON.stringify(job.termIds),
+          kind: job.kind,
+          query: job.query,
+          rawCount: response.tweets.length,
+          keptCount,
+          cacheHit,
+          success: true,
+          errorMessage: null,
+        });
+        return response;
+      };
+
+      const response = await twitterapis.searchTweets({ query: job.query, product: "Latest" }, context);
+      batchesRun.push({ kind: job.kind, termCount: job.termIds.length, query: job.query, rawCount: response.tweets.length });
+      job.termIds.forEach((id) => succeededTermIds.add(id));
+      await recordPage(response);
+
+      // Pagination — every job kind (see the function doc comment for why
+      // this differs from Reddit's precision-only pagination). Each page is
+      // its own real $0.0008 call through the exact same searchTweets() ->
+      // service.ts path as everything else, so budget/cache/ledger stay
+      // fully in force per page.
+      if (X_QUERY_PAGES > 1 && response.next_cursor) {
+        let cursor: string | undefined = response.next_cursor;
+        for (let page = 1; page < X_QUERY_PAGES && cursor; page++) {
+          try {
+            const nextResponse = await twitterapis.searchTweets({ query: job.query, product: "Latest", cursor }, context);
+            await recordPage(nextResponse);
+            if (nextResponse.tweets.length === 0) break; // empty page — provider has nothing further
+            cursor = nextResponse.next_cursor ?? undefined;
+          } catch (err) {
+            if (err instanceof TwitterApisBudgetExceededError) budgetExhausted = true;
+            console.error(`[searchOrchestrator] X pagination page ${page + 1} failed for campaign ${params.campaignId}:`, err);
+            break; // stop paginating, keep whatever pages already succeeded
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof TwitterApisBudgetExceededError) budgetExhausted = true;
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      console.error(`[searchOrchestrator] X ${job.kind} batch failed for campaign ${params.campaignId}:`, err);
+      errors.push(`${job.kind}: ${message}`);
+      runRows.push({
+        termIds: JSON.stringify(job.termIds),
+        kind: job.kind,
+        query: job.query,
+        rawCount: 0,
+        keptCount: 0,
+        cacheHit: false,
+        success: false,
+        errorMessage: message,
+      });
+    }
+  });
+
+  if (params.scanRunId && runRows.length > 0) {
+    try {
+      await prisma.discoveryTermRun.createMany({
+        data: runRows.map((r) => ({ scanRunId: params.scanRunId!, ...r })),
+      });
+    } catch (err) {
+      console.error(`[searchOrchestrator] failed to persist DiscoveryTermRun rows for campaign ${params.campaignId}:`, err);
+    }
+  }
+
+  const usedTermIds = Array.from(succeededTermIds);
+  if (usedTermIds.length > 0) {
+    try {
+      await Promise.all(
+        usedTermIds.map((id) =>
+          prisma.discoveryTerm.update({
+            where: { id },
+            data: {
+              timesUsed: { increment: 1 },
+              lastUsedAt: new Date(),
+              candidatesFound: { increment: termHitCounts.get(id) ?? 0 },
+            },
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error(`[searchOrchestrator] discovery term stats update failed for campaign ${params.campaignId}:`, err);
+    }
+  }
+
+  return {
+    tweets: Array.from(byId.values()),
     batchesRun,
     discoveryTermsUsed: usedTermIds.length,
     searchesPlanned,
