@@ -132,7 +132,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         )}
       </section>
 
-      {campaign.sourceType === "reddit" && (
+      {campaign.sourceType !== "manual" && (
         <section className="rounded-lg border border-line bg-surface p-5">
           <div className="flex items-start justify-between gap-4 mb-1">
             <h2 className="font-medium text-sm">Scout's discovery profile</h2>
@@ -213,7 +213,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                       <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
                       {run.opportunitiesCreated === 1 ? "y" : "ies"}
                       {" · "}
-                      <span title="Redditapis spend + estimated Gemini cost — the AI figure is a measured estimate, not a ledger fact.">
+                      <span title={`${sourceLabel(campaign.sourceType)} provider spend + estimated Gemini cost — the AI figure is a measured estimate, not a ledger fact.`}>
                         ~${totalCost.toFixed(3)}
                       </span>
                       {run.searchesSkippedBudget > 0
