@@ -5,7 +5,8 @@ import { RedditapisBudgetExceededError, type RedditapisPost } from "@/lib/provid
 import * as twitterapis from "@/lib/providers/twitterapis/service";
 import { TwitterApisBudgetExceededError, type Tweet } from "@/lib/providers/twitterapis/service";
 import { generateDiscoveryTerms, hashOfferForDiscovery, DISCOVERY_PROMPT_VERSION } from "@/lib/ai/discovery";
-import type { DiscoveryTerm, Offer } from "@prisma/client";
+import { generateXPhrases, X_PHRASE_PROMPT_VERSION } from "@/lib/ai/xPhrases";
+import type { DiscoveryTerm, XDiscoveryPhrase, Offer } from "@prisma/client";
 
 /**
  * Retrieval architecture: broad discovery -> semantic qualification.
@@ -132,44 +133,54 @@ export function packTermBatches(terms: TermRef[], maxBatches: number, maxLength:
 
 const PRIORITY_BASE: Record<string, number> = { high: 30, medium: 20, low: 10 };
 
+type RotationStats = { priority: string; timesUsed: number; lastUsedAt: Date | null; candidatesFound: number; opportunitiesFound: number };
+type RankedCandidate<T> = { candidate: T; score: number };
 type RankedTerm = { term: DiscoveryTerm; score: number };
 
 /**
- * Exploration + exploitation over individual terms, not "repeat the same
- * queries forever":
- * - base: Gemini's own stated confidence for this concept (priority).
- * - explorationBonus: never-used terms get a strong flat boost (every
- *   concept eventually gets tried at least once); used terms get a smaller
- *   bonus that grows the longer it's been since they last ran, capped at 30
- *   after ~6 days idle, so rotation actually rotates through a large pool.
- * - yieldBonus: once a term has been searched enough to mean something
- *   (>=3 attributed candidates), its real historical opportunities-per-
- *   candidate rate feeds back in, capped at 40 — high-yield terms surface
- *   more, low-yield ones fade, without ever fully zeroing out.
+ * Exploration + exploitation over individual rotation candidates, not
+ * "repeat the same queries forever" — shared by both DiscoveryTerm
+ * (Reddit's short concept pool, via rankTerms below) and XDiscoveryPhrase
+ * (X's natural-phrase pool, used directly in runXDiscovery), since both
+ * tables carry the exact same rotation-stat shape:
+ * - base: Gemini's own stated confidence for this concept/phrase (priority).
+ * - explorationBonus: never-used candidates get a strong flat boost (every
+ *   one eventually gets tried at least once); used ones get a smaller bonus
+ *   that grows the longer it's been since they last ran, capped at 30 after
+ *   ~6 days idle, so rotation actually rotates through a large pool.
+ * - yieldBonus: once a candidate has been searched enough to mean something
+ *   (>=3 attributed candidates found), its real historical opportunities-
+ *   per-candidate rate feeds back in, capped at 40 — high-yield candidates
+ *   surface more, low-yield ones fade, without ever fully zeroing out.
  */
-export function rankTerms(terms: DiscoveryTerm[]): RankedTerm[] {
+export function rankCandidates<T extends RotationStats>(candidates: T[], textOf: (c: T) => string): RankedCandidate<T>[] {
   const now = Date.now();
-  return terms
-    .filter((t) => t.term.trim().length > 0)
-    .map((t) => {
-      const base = PRIORITY_BASE[t.priority] ?? 10;
+  return candidates
+    .filter((c) => textOf(c).trim().length > 0)
+    .map((c) => {
+      const base = PRIORITY_BASE[c.priority] ?? 10;
 
       let explorationBonus = 0;
-      if (t.timesUsed === 0) {
+      if (c.timesUsed === 0) {
         explorationBonus = 50;
-      } else if (t.lastUsedAt) {
-        const daysIdle = (now - t.lastUsedAt.getTime()) / 86_400_000;
+      } else if (c.lastUsedAt) {
+        const daysIdle = (now - c.lastUsedAt.getTime()) / 86_400_000;
         explorationBonus = Math.min(30, daysIdle * 5);
       }
 
       let yieldBonus = 0;
-      if (t.candidatesFound >= 3) {
-        yieldBonus = Math.min(40, (t.opportunitiesFound / t.candidatesFound) * 200);
+      if (c.candidatesFound >= 3) {
+        yieldBonus = Math.min(40, (c.opportunitiesFound / c.candidatesFound) * 200);
       }
 
-      return { term: t, score: base + explorationBonus + yieldBonus };
+      return { candidate: c, score: base + explorationBonus + yieldBonus };
     })
     .sort((a, b) => b.score - a.score);
+}
+
+/** Reddit-specific convenience wrapper around rankCandidates — kept for the existing call sites and tests. */
+export function rankTerms(terms: DiscoveryTerm[]): RankedTerm[] {
+  return rankCandidates(terms, (t) => t.term).map((r) => ({ term: r.candidate, score: r.score }));
 }
 
 /**
@@ -244,20 +255,29 @@ const MAX_COMMUNITY_BONUS_BATCHES = Number(process.env.MAX_COMMUNITY_BONUS_BATCH
 const PRECISION_QUERY_PAGES = Math.min(5, Math.max(1, Number(process.env.PRECISION_QUERY_PAGES) || 1));
 
 // --- X/Twitter-specific tuning (runXDiscovery, below) ---
-// Same idea as DISCOVERY_TERMS_PER_SCAN above, independently configurable
-// because the two providers' economics differ (TwitterAPIs' documented
-// search endpoint is $0.0008/call flat — cheaper than Redditapis's
-// $0.002/call — but TwitterAPIs pages at a fixed ~20 tweets and does not
-// honor a custom count, so unlike Reddit, a single X call can't be made to
-// return more by raising a limit param; more real recall on X comes from
-// running more distinct queries and/or paginating each one, not a bigger
-// per-call limit).
-const X_DISCOVERY_TERMS_PER_SCAN = Number(process.env.X_DISCOVERY_TERMS_PER_SCAN) || 60;
+// How many of the campaign's ranked XDiscoveryPhrase rows get a chance to
+// run this scan — the phrase-pool equivalent of DISCOVERY_TERMS_PER_SCAN
+// above. Sized higher than a raw 1:1 match with Reddit's default: X's
+// discovery layer leans substantially more on this rotating phrase pool
+// (there's no separate community/subreddit-bonus layer siphoning off some
+// of the job budget the way Reddit's does), and TwitterAPIs' flat
+// $0.0008/call is cheaper than Redditapis's $0.002/call, so a larger
+// rotation window is cheap to afford.
+const X_PHRASES_PER_SCAN = Number(process.env.X_PHRASES_PER_SCAN) || 80;
 // Hard cap on discovery-layer provider calls per scan for X, same role as
-// MAX_DISCOVERY_BATCHES_PER_SCAN above. At $0.0008/call, 8 batches is
-// $0.0064/scan for the discovery layer — cheaper than Reddit's equivalent
-// even before pagination.
-const MAX_X_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_X_DISCOVERY_BATCHES_PER_SCAN) || 8;
+// MAX_DISCOVERY_BATCHES_PER_SCAN above. Raised above Reddit's 8-batch
+// default deliberately (see section 12 of the implementation spec this
+// shipped under: "make discovery substantially more capable... do not
+// artificially restrict candidate retrieval merely because the old
+// implementation was conservative") — real measured account economics
+// support it: TwitterAPIs' documented search endpoint is a flat $0.0008/
+// call (verified live against the real /account/me + search response),
+// so 12 batches + 1 precision call is $0.0104/scan for the discovery
+// layer, still trivial relative to the account's real balance. At a fixed
+// ~20 tweets/page (not honoring a custom count, verified live: 6 calls ->
+// exactly 120 raw results, 20/call), call COUNT is the entire recall lever
+// here — there's no equivalent to Reddit's "raise limit for free" option.
+const MAX_X_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_X_DISCOVERY_BATCHES_PER_SCAN) || 12;
 const X_SEARCH_CONCURRENCY = Number(process.env.X_SEARCH_CONCURRENCY) || 3;
 // Extra pages per X query (precision AND discovery batches alike — unlike
 // Reddit's precision-only pagination, X pages are fixed at ~20 tweets
@@ -407,6 +427,72 @@ export async function forceRegenerateDiscoveryTerms(campaignId: string): Promise
   const offer = campaign?.company.offer;
   if (!offer) throw new Error("No offer profile found for this company yet — finish onboarding first.");
   await regenerateDiscoveryTerms(campaignId, offer);
+}
+
+async function regenerateXPhrases(campaignId: string, offer: Offer): Promise<void> {
+  const generated = await generateXPhrases(offer);
+  const hash = hashOfferForDiscovery(offer);
+  await prisma.$transaction([
+    prisma.xDiscoveryPhrase.updateMany({ where: { campaignId, active: true }, data: { active: false } }),
+    prisma.xDiscoveryPhrase.createMany({
+      data: generated.phrases.map((p) => ({
+        campaignId,
+        phrase: p.phrase,
+        category: p.category,
+        priority: p.priority,
+        promptVersion: X_PHRASE_PROMPT_VERSION,
+      })),
+    }),
+    prisma.campaign.update({ where: { id: campaignId }, data: { discoveryOfferHash: hash } }),
+  ]);
+}
+
+/**
+ * X/Twitter's equivalent of ensureDiscoveryTerms above — same lazy
+ * bootstrap/staleness-refresh pattern, against XDiscoveryPhrase instead of
+ * DiscoveryTerm. Reuses Campaign.discoveryOfferHash for staleness: it's the
+ * exact same Offer fingerprint either pool would compare against, so a
+ * material offer change invalidates both pools together without needing a
+ * second hash column. (In practice only one of the two ever runs for a
+ * given campaign — sourceType is fixed per campaign — so there's no
+ * scenario where the two pools fight over which one "owns" the hash.)
+ */
+export async function ensureXPhrases(campaignId: string): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { company: { include: { offer: true } } },
+  });
+  const offer = campaign?.company.offer;
+  if (!campaign || !offer) return; // no offer yet — precision query still works fine on its own
+
+  const activeCount = await prisma.xDiscoveryPhrase.count({ where: { campaignId, active: true } });
+  const currentHash = hashOfferForDiscovery(offer);
+  const hashStale = campaign.discoveryOfferHash !== currentHash;
+
+  let versionStale = false;
+  if (activeCount > 0 && !hashStale) {
+    const sample = await prisma.xDiscoveryPhrase.findFirst({ where: { campaignId, active: true } });
+    versionStale = sample?.promptVersion !== X_PHRASE_PROMPT_VERSION;
+  }
+
+  if (activeCount > 0 && !hashStale && !versionStale) return;
+
+  try {
+    await regenerateXPhrases(campaignId, offer);
+  } catch (err) {
+    console.error(`[searchOrchestrator] X phrase generation failed for campaign ${campaignId}:`, err);
+  }
+}
+
+/** Manual "regenerate" trigger (campaign page action) — same path as automatic staleness detection, forced regardless. */
+export async function forceRegenerateXPhrases(campaignId: string): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { company: { include: { offer: true } } },
+  });
+  const offer = campaign?.company.offer;
+  if (!offer) throw new Error("No offer profile found for this company yet — finish onboarding first.");
+  await regenerateXPhrases(campaignId, offer);
 }
 
 /**
@@ -669,11 +755,13 @@ export type XDiscoveryResult = {
 
 /**
  * X/Twitter's equivalent of runDiscovery() above — same precision-layer +
- * rotated-discovery-batch architecture, same DiscoveryTerm pool (shared
- * across sources, since it's generated from the Offer alone), same
+ * rotated-discovery-batch architecture and same
  * cache -> budget -> network -> ledger enforcement, just against
- * lib/providers/twitterapis/service.ts instead of Redditapis's. Differs
- * from runDiscovery only where the two providers genuinely differ:
+ * lib/providers/twitterapis/service.ts instead of Redditapis's, and
+ * rotating its OWN XDiscoveryPhrase pool (lib/ai/xPhrases.ts) rather than
+ * Reddit's DiscoveryTerm pool — X leans on natural conversational phrases,
+ * not short topic concepts (see xPhrases.ts for why). Differs from
+ * runDiscovery elsewhere the two providers genuinely differ:
  * - No community/subreddit concept: TwitterAPIs' documented
  *   advanced_search operators (from:/to:/since:/until:/min_faves:/lang:)
  *   have no subreddit-equivalent, so there is no community-bonus job type
@@ -688,16 +776,19 @@ export type XDiscoveryResult = {
  *   instead of RedditapisBudgetExceededError; everything else about the
  *   honest partial-scan accounting (searchesPlanned/searchesSkippedBudget,
  *   one DiscoveryTermRun row per planned job regardless of outcome) is
- *   identical.
+ *   identical — DiscoveryTermRun itself is reused as-is (its `termIds`
+ *   column is just a JSON string[] of whichever pool's ids ran; it has no
+ *   foreign key into DiscoveryTerm specifically, so it works unchanged for
+ *   XDiscoveryPhrase ids too).
  */
 export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscoveryResult> {
-  await ensureDiscoveryTerms(params.campaignId);
+  await ensureXPhrases(params.campaignId);
 
   const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
-  const termRows = await prisma.discoveryTerm.findMany({ where: { campaignId: params.campaignId, active: true } });
-  const ranked = rankTerms(termRows).slice(0, X_DISCOVERY_TERMS_PER_SCAN);
+  const phraseRows = await prisma.xDiscoveryPhrase.findMany({ where: { campaignId: params.campaignId, active: true } });
+  const ranked = rankCandidates(phraseRows, (p) => p.phrase).slice(0, X_PHRASES_PER_SCAN);
   const batches = packTermBatches(
-    ranked.map((r) => ({ id: r.term.id, term: r.term.term })),
+    ranked.map((r) => ({ id: r.candidate.id, term: r.candidate.phrase })),
     MAX_X_DISCOVERY_BATCHES_PER_SCAN,
     MAX_PHRASE_GROUP_LENGTH,
   );
@@ -847,7 +938,7 @@ export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscover
     try {
       await Promise.all(
         usedTermIds.map((id) =>
-          prisma.discoveryTerm.update({
+          prisma.xDiscoveryPhrase.update({
             where: { id },
             data: {
               timesUsed: { increment: 1 },
@@ -858,7 +949,7 @@ export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscover
         ),
       );
     } catch (err) {
-      console.error(`[searchOrchestrator] discovery term stats update failed for campaign ${params.campaignId}:`, err);
+      console.error(`[searchOrchestrator] X phrase stats update failed for campaign ${params.campaignId}:`, err);
     }
   }
 
@@ -872,15 +963,30 @@ export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscover
   };
 }
 
-/** Credits a genuine opportunity back to every term that found it — the exploitation half of rotation. Called from pipeline.ts once analysis confirms is_opportunity. */
+/**
+ * Credits a genuine opportunity back to every term/phrase that found it —
+ * the exploitation half of rotation. Called from pipeline.ts once analysis
+ * confirms is_opportunity. ids may be DiscoveryTerm ids (Reddit) or
+ * XDiscoveryPhrase ids (X) — pipeline.ts doesn't know or care which pool a
+ * given conversation's foundByTerms came from, so this updates both tables;
+ * whichever one doesn't own a given id simply matches zero rows (cuid ids
+ * are independently generated per table, so there's no realistic collision
+ * risk of crediting the wrong pool).
+ */
 export async function creditOpportunityToTerms(ids: string[]): Promise<void> {
   const realIds = ids.filter((id) => id !== "precision");
   if (realIds.length === 0) return;
   try {
-    await prisma.discoveryTerm.updateMany({
-      where: { id: { in: realIds } },
-      data: { opportunitiesFound: { increment: 1 } },
-    });
+    await Promise.all([
+      prisma.discoveryTerm.updateMany({
+        where: { id: { in: realIds } },
+        data: { opportunitiesFound: { increment: 1 } },
+      }),
+      prisma.xDiscoveryPhrase.updateMany({
+        where: { id: { in: realIds } },
+        data: { opportunitiesFound: { increment: 1 } },
+      }),
+    ]);
   } catch (err) {
     console.error("[searchOrchestrator] failed to credit opportunity to discovery terms:", err);
   }

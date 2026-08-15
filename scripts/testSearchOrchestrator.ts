@@ -14,7 +14,7 @@
  *
  * Run with: npm run test:search-orchestrator
  */
-import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds, attributeTermIds, buildCommunityBonusJobs } from "@/lib/sources/searchOrchestrator";
+import { buildBaselineQuery, packTermBatches, rankTerms, rankCandidates, matchedTermIds, attributeTermIds, buildCommunityBonusJobs } from "@/lib/sources/searchOrchestrator";
 import type { DiscoveryTerm } from "@prisma/client";
 import type { RedditapisPost } from "@/lib/providers/redditapis/service";
 
@@ -209,6 +209,30 @@ function main() {
     "attribution: no literal match falls back to crediting the whole batch",
     noMatch.length === 2 && noMatch.includes("t1") && noMatch.includes("t2"),
     `got: ${JSON.stringify(noMatch)}`,
+  );
+
+  // --- rankCandidates (shared, generic rotation ranking — rankTerms above
+  // is just its DiscoveryTerm-shaped wrapper; runXDiscovery calls this
+  // directly on XDiscoveryPhrase rows, which share the same rotation-stat
+  // shape but are a structurally different type) ---
+  type FakePhrase = { id: string; priority: string; timesUsed: number; lastUsedAt: Date | null; candidatesFound: number; opportunitiesFound: number; phrase: string };
+  function makePhrase(overrides: Partial<FakePhrase> & { id: string; phrase: string; priority: string }): FakePhrase {
+    return { timesUsed: 0, lastUsedAt: null, candidatesFound: 0, opportunitiesFound: 0, ...overrides };
+  }
+  const neverUsedPhrase = makePhrase({ id: "p-never", phrase: "no idea where to start with this", priority: "high" });
+  const usedPhrase = makePhrase({ id: "p-used", phrase: "does anyone actually know a good one", priority: "high", timesUsed: 4, lastUsedAt: new Date() });
+  const rankedPhrases = rankCandidates([neverUsedPhrase, usedPhrase], (p) => p.phrase);
+  check(
+    "rankCandidates: works on a non-DiscoveryTerm shape (XDiscoveryPhrase-like) with the same rotation rules as rankTerms",
+    rankedPhrases.findIndex((r) => r.candidate.id === "p-never") < rankedPhrases.findIndex((r) => r.candidate.id === "p-used"),
+    `order: ${rankedPhrases.map((r) => r.candidate.id).join(", ")}`,
+  );
+  const blankPhrase = makePhrase({ id: "p-blank", phrase: "   ", priority: "high" });
+  const rankedWithBlankPhrase = rankCandidates([blankPhrase, neverUsedPhrase], (p) => p.phrase);
+  check(
+    "rankCandidates: filters out candidates with no usable text, same as rankTerms",
+    rankedWithBlankPhrase.every((r) => r.candidate.id !== "p-blank") && rankedWithBlankPhrase.length === 1,
+    `remaining: ${rankedWithBlankPhrase.map((r) => r.candidate.id).join(", ")}`,
   );
 
   // --- attributeTermIds (shared, source-agnostic attribution — X's

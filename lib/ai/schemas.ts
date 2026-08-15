@@ -239,3 +239,78 @@ export const discoveryTermResponseSchema: Schema = {
   },
   required: ["terms"],
 };
+
+export const X_PHRASE_PROMPT_VERSION = "x-phrase-v1-gemini";
+
+/**
+ * X/Twitter's discovery-vocabulary categories — deliberately its own enum,
+ * not DISCOVERY_TERM_CATEGORIES reused, because these are rotation classes
+ * for natural CONVERSATIONAL PHRASES (lib/ai/xPhrases.ts), not the shorter
+ * topic-concept style DiscoveryTerm uses. Named directly after the rotation
+ * classes X/Twitter discovery is meant to cover: direct demand,
+ * recommendations, problems, outcomes, solution-seeking, alternatives,
+ * comparisons, frustrations, tools/products/services, adjacent concepts,
+ * and customer-language variations.
+ */
+export const X_PHRASE_CATEGORIES = [
+  "direct_demand",
+  "recommendation",
+  "problem",
+  "outcome",
+  "solution_seeking",
+  "alternative",
+  "comparison",
+  "frustration",
+  "tool_product_service",
+  "adjacent_concept",
+  "customer_language",
+  "other",
+] as const;
+
+export const xPhraseSchema = z.object({
+  phrase: z.string().min(1).max(140),
+  category: z.enum(X_PHRASE_CATEGORIES),
+  priority: z.enum(DISCOVERY_TERM_PRIORITIES),
+});
+
+export const xPhraseResultSchema = z.object({
+  phrases: z.array(xPhraseSchema).min(1).max(300),
+});
+
+export type XPhraseResult = z.infer<typeof xPhraseResultSchema>;
+
+/**
+ * Business offer -> a large pool of natural, conversational search phrases
+ * for X/Twitter. Same "no min/maxItems on the array" reasoning as
+ * discoveryTermResponseSchema above (a live-verified Gemini structured-
+ * output constraint: any maxItems above 63 on an array in a responseSchema
+ * causes a hard 400) — the target count lives entirely in the prompt's own
+ * "aim for ~N" instruction (lib/ai/xPhrases.ts) and is enforced client-side
+ * as a generous upper bound by xPhraseResultSchema's zod .max(300) instead.
+ */
+export const xPhraseResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    phrases: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          phrase: {
+            type: Type.STRING,
+            description:
+              "A short, natural, conversational fragment (roughly 3-9 words) — what a real person might actually type in a tweet. Not a single keyword/topic label, and not a full formal sentence — a realistic snippet of real speech, informal and specific.",
+          },
+          category: { type: Type.STRING, enum: [...X_PHRASE_CATEGORIES] },
+          priority: {
+            type: Type.STRING,
+            enum: [...DISCOVERY_TERM_PRIORITIES],
+            description: "Your own confidence that this phrase will surface real prospects for this business — high/medium/low.",
+          },
+        },
+        required: ["phrase", "category", "priority"],
+      },
+    },
+  },
+  required: ["phrases"],
+};

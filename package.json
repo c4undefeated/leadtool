@@ -17,6 +17,7 @@
     "eval": "tsx scripts/eval.ts",
     "test:junk-filter": "tsx scripts/testJunkFilter.ts",
     "test:search-orchestrator": "tsx scripts/testSearchOrchestrator.ts",
+    "test:x-phrase-generation": "tsx scripts/testXPhraseGeneration.ts",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
