@@ -204,9 +204,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                 {campaign.scanRuns.map((run) => (
                   <p key={run.id} className="text-xs font-mono text-muted">
                     {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
-                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed →{" "}
+                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed
+                    {run.candidatesCarriedOver > 0 ? ` (${run.candidatesCarriedOver} backlog)` : ""} →{" "}
                     <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
                     {run.opportunitiesCreated === 1 ? "y" : "ies"}
+                    {run.searchesSkippedBudget > 0
+                      ? ` — ${run.searchesSkippedBudget} of ${run.searchesPlanned} planned searches skipped (budget)`
+                      : ""}
                     {run.providerErrors > 0 || run.aiErrors > 0
                       ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
                       : ""}

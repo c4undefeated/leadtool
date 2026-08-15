@@ -51,13 +51,14 @@ export class RedditApisSourceAdapter implements SourceAdapter {
   }
 
   async search(params: SearchParams): Promise<NormalizedConversation[]> {
-    // /api/reddit/search takes at most one subreddit filter. To keep the
-    // whole batch of queries this scan runs at a predictable, bounded cost,
-    // we only pass a subreddit restriction when the campaign names exactly
-    // one community; zero or multiple communities fall back to an unscoped
-    // global search rather than looping per-subreddit.
-    const subreddit = params.communities.length === 1 ? params.communities[0] : undefined;
-
+    // /api/reddit/search takes at most one subreddit filter per call. The
+    // full communities list is handed to the orchestrator, which decides
+    // how to use it — exactly one scopes everything (unchanged), zero or
+    // several stay global for the main batches plus a small number of
+    // rotating community-scoped bonus searches. See
+    // searchOrchestrator.ts's buildCommunityBonusJobs for why global is the
+    // right default for recall even with several communities configured.
+    //
     // Redditapis's own time-window param only takes coarse buckets (hour/
     // day/week/month/year/all) and — per its docs — mainly affects
     // top/controversial sort, not new/relevance. We use it as a cheap
@@ -74,7 +75,7 @@ export class RedditApisSourceAdapter implements SourceAdapter {
       companyId: params.companyId,
       keywords: params.keywords,
       topics: params.topics,
-      subreddit,
+      communities: params.communities,
       sort: "new",
       t,
       baselineLimit: params.limit ?? 100,
@@ -90,9 +91,14 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // real recency cutoff — so a "0 ingested" result downstream can be told
     // apart from "discovery found nothing" vs. "it found things, they just
     // weren't recent enough."
-    const batchSummary = discovery.batchesRun.map((b) => `${b.kind}${b.kind === "discovery" ? `(${b.termCount} terms)` : ""}:${b.rawCount}`).join(", ");
+    const batchSummary = discovery.batchesRun
+      .map((b) => {
+        const label = b.kind === "discovery" ? `discovery(${b.termCount} terms)` : b.kind === "community" ? `community(r/${b.subreddit})` : "precision";
+        return `${label}:${b.rawCount}`;
+      })
+      .join(", ");
     console.log(
-      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: ran ${discovery.batchesRun.length} quer${discovery.batchesRun.length === 1 ? "y" : "ies"} covering ${discovery.discoveryTermsUsed} discovery term(s) (${batchSummary}) -> ${discovery.posts.length} unique post(s), ${recent.length} within the ${maxAgeHours}h window` +
+      `[RedditApisSourceAdapter] campaign ${params.campaignId ?? "?"}: planned ${discovery.searchesPlanned} quer${discovery.searchesPlanned === 1 ? "y" : "ies"}, ran ${discovery.batchesRun.length}${discovery.searchesSkippedBudget > 0 ? ` (${discovery.searchesSkippedBudget} skipped — budget exhausted)` : ""} covering ${discovery.discoveryTermsUsed} discovery term(s) (${batchSummary}) -> ${discovery.posts.length} unique post(s), ${recent.length} within the ${maxAgeHours}h window` +
         (discovery.errors.length > 0 ? ` (${discovery.errors.length} quer${discovery.errors.length === 1 ? "y" : "ies"} failed: ${discovery.errors.join("; ")})` : ""),
     );
 
