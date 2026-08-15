@@ -48,7 +48,7 @@ const MIN_WORD_COUNT = 8;
  * Gemini — the zero-result-integrity judgment call stays with the model,
  * not a keyword list.
  */
-export function isJunkPost(conversation: NormalizedConversation): JunkCheck {
+export function isJunkPost(conversation: Pick<NormalizedConversation, "title" | "originalText">): JunkCheck {
   const title = (conversation.title ?? "").trim();
   const body = (conversation.originalText ?? "").trim();
 
@@ -148,6 +148,17 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
   };
 
   const result = await analyzeConversation(nc, offer, conversation.campaign.exclusions);
+
+  // Recorded regardless of outcome, right after a real Gemini verdict comes
+  // back — this is what makes "never analyzed" distinguishable from
+  // "analyzed and correctly rejected" (see the field's own doc comment in
+  // schema.prisma). Left unset if analyzeConversation throws above, so a
+  // transient failure gets naturally retried by a future scan's backlog
+  // pass instead of being wrongly marked done.
+  await prisma.conversation
+    .update({ where: { id: conversation.id }, data: { analyzedAt: new Date() } })
+    .catch((err) => console.error(`[runAnalysisForConversation] failed to mark analyzedAt for conversation ${conversation.id}:`, err));
+
   if (!result) return null;
 
   // conversationId is @unique on Opportunity, so the DB is the real backstop
@@ -346,39 +357,72 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
     }
   }
 
-  // Multi-surface retrieval can realistically return up to ~200 raw posts
-  // pre-dedup now (baseline + several rotated surfaces), roughly double the
-  // single-query ceiling this concurrency/cap pair was originally sized
-  // for. A hard cap here is an honest safety valve, not a silent drop: the
-  // conversations are already stored above (dedup keeps working next scan
-  // regardless), only analysis of the overflow is deferred — and that's
-  // logged, not swallowed. KNOWN LIMITATION: there is currently no
-  // mechanism that retroactively analyzes an ingested-but-not-yet-analyzed
-  // conversation on a later scan (a future scan only analyzes posts its own
-  // fresh search returns) — deferred conversations stay ingested but
-  // unanalyzed until something else surfaces them again. Worth a follow-up
-  // if this cap starts getting hit routinely rather than on rare large
-  // first-ever scans.
-  const MAX_ANALYSIS_PER_SCAN = 150;
-  const toAnalyze = newConversationIds.slice(0, MAX_ANALYSIS_PER_SCAN);
+  // Raised alongside the broader discovery retrieval (per-call limit now
+  // 100, up to 8 discovery batches + precision + community bonus batches —
+  // see searchOrchestrator.ts) which can realistically return several
+  // hundred raw posts pre-dedup now. 250 is a deliberately measured
+  // default, not a round-number guess: live-measured Gemini 3.6 Flash
+  // analysis calls average ~2-4s including "thinking" tokens (see the
+  // implementation report for real usageMetadata numbers), so at
+  // ANALYSIS_CONCURRENCY=15 within a ~50s safe slice of Vercel's 60s
+  // maxDuration, ~250 is a realistic, not optimistic, ceiling. Configurable
+  // because real latency varies by deployment and by how much "thinking"
+  // a given batch of conversations triggers.
+  const MAX_ANALYSIS_PER_SCAN = Number(process.env.MAX_ANALYSIS_PER_SCAN) || 250;
+  const freshToAnalyze = newConversationIds.slice(0, MAX_ANALYSIS_PER_SCAN);
   if (newConversationIds.length > MAX_ANALYSIS_PER_SCAN) {
     console.error(
-      `[runScanForCampaign] campaign ${campaign.id}: ${newConversationIds.length} new conversations exceeds the ${MAX_ANALYSIS_PER_SCAN}-per-scan analysis cap — ${newConversationIds.length - MAX_ANALYSIS_PER_SCAN} ingested but deferred, not analyzed this run.`,
+      `[runScanForCampaign] campaign ${campaign.id}: ${newConversationIds.length} new conversations exceeds the ${MAX_ANALYSIS_PER_SCAN}-per-scan analysis cap — ${newConversationIds.length - MAX_ANALYSIS_PER_SCAN} ingested but deferred; will be picked up as backlog by a future scan (see below), not lost.`,
     );
   }
+
+  // Backlog carryover: conversations ingested by an earlier scan that never
+  // got analyzed (a prior scan hit MAX_ANALYSIS_PER_SCAN, or this is the
+  // first scan after Conversation.analyzedAt shipped and the campaign has
+  // older never-analyzed rows) get a chance to fill whatever capacity this
+  // scan's own fresh discoveries don't use. Fresh conversations always take
+  // priority — a backlog item is by definition less timely than something
+  // just found. isJunkPost is a cheap, pure, re-evaluatable function, so
+  // re-running it here instead of persisting a separate isJunk flag is both
+  // simpler and self-correcting (catches posts deleted since ingestion).
+  const remainingAnalysisCapacity = Math.max(0, MAX_ANALYSIS_PER_SCAN - freshToAnalyze.length);
+  const backlogIds: string[] = [];
+  if (remainingAnalysisCapacity > 0) {
+    try {
+      const backlogCandidates = await prisma.conversation.findMany({
+        where: { campaignId: campaign.id, analyzedAt: null, id: { notIn: newConversationIds } },
+        orderBy: { ingestedAt: "asc" },
+        take: remainingAnalysisCapacity,
+      });
+      for (const c of backlogCandidates) {
+        const junk = isJunkPost({ title: c.title, originalText: c.originalText });
+        if (junk.isJunk) {
+          result.skippedJunk += 1;
+          await prisma.conversation.update({ where: { id: c.id }, data: { analyzedAt: new Date() } }).catch(() => {});
+          continue;
+        }
+        backlogIds.push(c.id);
+      }
+    } catch (err) {
+      console.error(`[runScanForCampaign] backlog lookup failed for campaign ${campaign.id}:`, err);
+    }
+  }
+
+  const toAnalyze = [...freshToAnalyze, ...backlogIds];
 
   // Analysis is the slow part — one Gemini call per conversation. Running
   // several in flight at once keeps a scan with many new posts from running
   // long enough to hit the serverless function's execution limit, which
   // previously showed up as the whole scan failing partway with no useful
-  // error, just a dead connection. Raised alongside the analysis cap above
-  // when multi-surface retrieval roughly doubled the realistic ceiling on
-  // new posts per scan. 15 (not the more conservative 5-10 that'd be a
-  // reasonable default elsewhere) is deliberate for THIS deployment: Gemini
-  // calls are I/O-bound so concurrency is nearly free, and the real
-  // constraint driving the number up is Vercel's 60s serverless timeout,
-  // not provider rate limits. Configurable because "safe" depends on the
-  // actual deployment target, which this codebase can't know for itself.
+  // error, just a dead connection. Deliberately NOT raised further alongside
+  // this phase's broader retrieval: live-measured Gemini 3.6 Flash calls
+  // spend a real, variable amount of latency on "thinking" tokens (468-1044
+  // tokens observed across simple/medium/complex posts) that concurrency
+  // can't shortcut — the bottleneck is per-call generation time, not queue
+  // wait, so raising concurrency further buys little and risks unknown
+  // provider-side rate limiting this codebase has no visibility into.
+  // Configurable because "safe" depends on the actual deployment target and
+  // observed Gemini account tier, which this codebase can't know for itself.
   const ANALYSIS_CONCURRENCY = Number(process.env.ANALYSIS_CONCURRENCY) || 15;
   let aiErrorCount = 0;
   await mapWithConcurrency(toAnalyze, ANALYSIS_CONCURRENCY, async (conversationId) => {
@@ -404,6 +448,12 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   try {
     const termRuns = await prisma.discoveryTermRun.findMany({ where: { scanRunId: scanRun.id } });
     discoveryTermsUsed = new Set(termRuns.flatMap((r) => JSON.parse(r.termIds) as string[])).size;
+    // Every job (precision/discovery/community) writes exactly one
+    // DiscoveryTermRun row now, success, failure, or budget-skip alike — so
+    // termRuns.length IS the honest "planned" count, and rows whose
+    // errorMessage starts with "skipped:" are the ones the budget check
+    // stopped before they ever ran. See searchOrchestrator.ts's runDiscovery.
+    const searchesSkippedBudget = termRuns.filter((r) => r.errorMessage?.startsWith("skipped:")).length;
     const spend = await prisma.providerUsageEvent.aggregate({
       where: { campaignId: campaign.id, createdAt: { gte: scanStartedAt } },
       _sum: { unitCostUsd: true },
@@ -419,10 +469,13 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
         aiAnalyzedCount: toAnalyze.length,
         opportunitiesCreated: result.opportunitiesCreated,
         discoveryTermsUsed,
+        searchesPlanned: termRuns.length,
+        searchesSkippedBudget,
+        candidatesCarriedOver: backlogIds.length,
         providerCalls: termRuns.length,
         providerCacheHits: termRuns.filter((r) => r.cacheHit).length,
         providerSpendUsd: spend._sum.unitCostUsd ?? 0,
-        providerErrors: termRuns.filter((r) => !r.success).length,
+        providerErrors: termRuns.filter((r) => !r.success && !r.errorMessage?.startsWith("skipped:")).length,
         aiErrors: aiErrorCount,
       },
     });
@@ -436,7 +489,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   // a noisy source (heavy junk), or strict qualification (many analyzed,
   // few opportunities) all look different here.
   console.log(
-    `[runScanForCampaign] campaign ${campaign.id} summary: discovery terms used ${discoveryTermsUsed} -> ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${toAnalyze.length} analyzed -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
+    `[runScanForCampaign] campaign ${campaign.id} summary: discovery terms used ${discoveryTermsUsed} -> ${conversations.length} raw -> ${result.conversationsIngested} ingested (${result.skippedDuplicates} duplicate(s), ${result.skippedJunk} junk skipped) -> ${toAnalyze.length} analyzed (${freshToAnalyze.length} fresh, ${backlogIds.length} backlog) -> ${result.opportunitiesCreated} opportunit${result.opportunitiesCreated === 1 ? "y" : "ies"}`,
   );
 
   // A scan genuinely ran at this point, regardless of how many opportunities it

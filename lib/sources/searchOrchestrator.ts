@@ -174,27 +174,57 @@ export function matchedTermIds(post: RedditapisPost, batchTerms: TermRef[]): str
 // How many of the campaign's ranked discovery terms get a chance to run
 // this scan. Not the same as provider-call count — see packTermBatches,
 // which bundles many terms into few calls.
-const DISCOVERY_TERMS_PER_SCAN = Number(process.env.DISCOVERY_TERMS_PER_SCAN) || 24;
+const DISCOVERY_TERMS_PER_SCAN = Number(process.env.DISCOVERY_TERMS_PER_SCAN) || 60;
 // Hard cap on discovery-layer provider calls per scan, independent of pool
-// size or DISCOVERY_TERMS_PER_SCAN — this is the actual cost lever. With
-// short 2-5 word terms, ~24 selected terms typically pack into 2-3 batches
-// well under this cap; it exists as a backstop, not the normal path.
-const MAX_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_DISCOVERY_BATCHES_PER_SCAN) || 4;
-const DISCOVERY_BATCH_FETCH_LIMIT = Number(process.env.DISCOVERY_BATCH_FETCH_LIMIT) || 25;
+// size or DISCOVERY_TERMS_PER_SCAN — this is the actual cost lever, not
+// DISCOVERY_BATCH_FETCH_LIMIT below (Redditapis charges a flat $0.002 per
+// request regardless of `limit`, verified live against the real API — so
+// call COUNT drives cost, not result count per call). At $0.002/call, 8
+// batches is $0.016/scan for the discovery layer.
+const MAX_DISCOVERY_BATCHES_PER_SCAN = Number(process.env.MAX_DISCOVERY_BATCHES_PER_SCAN) || 8;
+// Redditapis hard-rejects any value above 100 with a 400 (verified live:
+// 100 succeeds, 250/500/1000 all fail with "limit must be an integer
+// between 1 and 100") — so 100 isn't an arbitrary raise, it's the actual
+// ceiling. Since cost is flat per-request, requesting fewer than the max
+// the provider allows is pure recall left on the table for free.
+const DISCOVERY_BATCH_FETCH_LIMIT = Number(process.env.DISCOVERY_BATCH_FETCH_LIMIT) || 100;
 // Deliberately independent from ANALYSIS_CONCURRENCY (lib/pipeline.ts) —
 // search concurrency and AI concurrency are bounded by completely different
 // constraints (provider stampede risk + shared budget-check races here, vs.
 // Gemini throughput + serverless timeout there) and must not be tied
-// together. Modest on purpose — a handful of calls a few seconds apart is
-// plenty; low concurrency keeps the shared budget check honest against races.
-const SEARCH_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 2;
+// together. Raised slightly alongside the higher job count above (up to
+// ~10 jobs/scan now vs ~5 before) to keep total search-phase wall time
+// roughly where it was; still modest — a handful of calls a few seconds
+// apart is plenty, and low concurrency keeps the shared budget check
+// honest against races.
+const SEARCH_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 3;
+// Bounded, cost-cheap precision boost for campaigns with several
+// configured communities. A global (unscoped) search already surfaces
+// content from every subreddit Redditapis indexes, including any the
+// campaign lists — restricting to a specific subreddit doesn't add reach
+// a provider that requires per-subreddit crawling would need, it only
+// narrows relevance ranking toward a known-good community. So the main
+// precision/discovery batches stay global (maximum recall); this adds a
+// SMALL number of extra subreddit-scoped calls using the best available
+// query, rotating through the campaign's communities day-to-day
+// (deterministic, not random — see buildCommunityBonusJobs) rather than
+// looping over all of them every scan.
+const MAX_COMMUNITY_BONUS_BATCHES = Number(process.env.MAX_COMMUNITY_BONUS_BATCHES) || 2;
 
 export type DiscoveryParams = {
   campaignId: string;
   companyId?: string;
   keywords: string[];
   topics: string[];
-  subreddit?: string;
+  /**
+   * Full list of the campaign's configured communities. 0 = fully global
+   * search (no subreddit restriction on anything). 1 = that subreddit
+   * scopes every job this scan (an explicit, deliberate choice by whoever
+   * configured the campaign — preserved as-is). 2+ = main batches stay
+   * global for maximum recall, plus a small number of rotating
+   * community-scoped bonus batches — see MAX_COMMUNITY_BONUS_BATCHES.
+   */
+  communities: string[];
   sort: "new";
   t: "hour" | "day" | "week" | "month" | "year" | "all";
   /** Fetch limit for the precision query specifically — the caller-configured "one big call" limit. Discovery batches use their own smaller DISCOVERY_BATCH_FETCH_LIMIT regardless. */
@@ -209,10 +239,39 @@ export type DiscoveredPost = { post: RedditapisPost; foundBy: string[] };
 
 export type DiscoveryResult = {
   posts: DiscoveredPost[];
-  batchesRun: { kind: "precision" | "discovery"; termCount: number; query: string; rawCount: number }[];
+  batchesRun: { kind: "precision" | "discovery" | "community"; termCount: number; query: string; rawCount: number; subreddit?: string }[];
   discoveryTermsUsed: number;
+  /** Full job list built before execution — the honest "intended to run this many searches" number, independent of how many actually executed. */
+  searchesPlanned: number;
+  /** Jobs that never even got attempted because the provider budget was already exhausted by the time their turn came — see the mid-scan RedditapisBudgetExceededError short-circuit below. */
+  searchesSkippedBudget: number;
   errors: string[];
 };
+
+/**
+ * Deterministic (day-indexed, not random) rotation through a campaign's
+ * configured communities for the bounded subreddit-scoped bonus batches —
+ * reproducible and debuggable (same day -> same rotation), rotates day to
+ * day so coverage spreads across all configured communities over time
+ * instead of always hitting the same one or two. Pure function: no I/O, no
+ * campaign lookups, easy to unit test independent of a live scan.
+ */
+export function buildCommunityBonusJobs(
+  communities: string[],
+  bestQuery: string,
+  maxBonusBatches: number,
+  now: number,
+): { subreddit: string; query: string }[] {
+  if (communities.length < 2 || !bestQuery || maxBonusBatches <= 0) return [];
+  const ordered = [...new Set(communities.filter((c) => c.trim().length > 0))].sort();
+  if (ordered.length < 2) return [];
+  const dayIndex = Math.floor(now / 86_400_000);
+  const count = Math.min(maxBonusBatches, ordered.length);
+  return Array.from({ length: count }, (_, i) => ({
+    subreddit: ordered[(dayIndex + i) % ordered.length]!,
+    query: bestQuery,
+  }));
+}
 
 async function regenerateDiscoveryTerms(campaignId: string, offer: Offer): Promise<void> {
   const generated = await generateDiscoveryTerms(offer);
@@ -312,10 +371,24 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
     MAX_PHRASE_GROUP_LENGTH,
   );
 
-  type Job = { kind: "precision" | "discovery"; termIds: string[]; termTexts: string[]; query: string; limit: number };
+  // Exactly one configured community scopes everything (unchanged, explicit
+  // choice). Zero or many communities: main batches go global — see
+  // MAX_COMMUNITY_BONUS_BATCHES's comment for why that's correct for
+  // recall, not a coverage loss.
+  const singleCommunity = params.communities.length === 1 ? params.communities[0] : undefined;
+
+  type Job = { kind: "precision" | "discovery" | "community"; termIds: string[]; termTexts: string[]; query: string; limit: number; subreddit?: string };
   const jobs: Job[] = [];
-  if (precisionQuery) jobs.push({ kind: "precision", termIds: [], termTexts: [], query: precisionQuery, limit: Math.min(params.baselineLimit, 100) });
-  for (const b of batches) jobs.push({ kind: "discovery", termIds: b.termIds, termTexts: b.termTexts, query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT });
+  if (precisionQuery) jobs.push({ kind: "precision", termIds: [], termTexts: [], query: precisionQuery, limit: Math.min(params.baselineLimit, 100), subreddit: singleCommunity });
+  for (const b of batches) jobs.push({ kind: "discovery", termIds: b.termIds, termTexts: b.termTexts, query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT, subreddit: singleCommunity });
+
+  const bestQueryForCommunityBonus = precisionQuery || batches[0]?.query || "";
+  const bonusJobs = buildCommunityBonusJobs(params.communities, bestQueryForCommunityBonus, MAX_COMMUNITY_BONUS_BATCHES, Date.now());
+  for (const b of bonusJobs) {
+    jobs.push({ kind: "community", termIds: [], termTexts: [], query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT, subreddit: b.subreddit });
+  }
+
+  const searchesPlanned = jobs.length;
 
   const byId = new Map<string, DiscoveredPost>();
   const batchesRun: DiscoveryResult["batchesRun"] = [];
@@ -324,7 +397,7 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   const succeededTermIds = new Set<string>(); // terms whose batch actually executed — the only ones whose rotation stats get touched
   const runRows: {
     termIds: string;
-    kind: "precision" | "discovery";
+    kind: "precision" | "discovery" | "community";
     query: string;
     rawCount: number;
     keptCount: number;
@@ -334,17 +407,35 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   }[] = [];
 
   let budgetExhausted = false;
+  let searchesSkippedBudget = 0;
   const context = { campaignId: params.campaignId, companyId: params.companyId };
   const cutoffMs = Date.now() - params.maxAgeHours * 60 * 60 * 1000;
 
   await mapWithConcurrency(jobs, SEARCH_CONCURRENCY, async (job) => {
-    if (budgetExhausted) return; // skip remaining queued jobs once we know further calls will just fail the same check
+    if (budgetExhausted) {
+      // Recorded honestly, not silently dropped — a scan that planned 10
+      // searches and got budget-cut after 6 must not look identical (same
+      // providerCalls) to a scan that only ever needed 6. See ScanRun's
+      // searchesPlanned/searchesSkippedBudget fields.
+      searchesSkippedBudget += 1;
+      runRows.push({
+        termIds: JSON.stringify(job.termIds),
+        kind: job.kind,
+        query: job.query,
+        rawCount: 0,
+        keptCount: 0,
+        cacheHit: false,
+        success: false,
+        errorMessage: "skipped: provider budget exhausted before this job's turn",
+      });
+      return;
+    }
     try {
       const response = await redditapis.searchRedditapis(
-        { q: job.query, subreddit: params.subreddit, sort: params.sort, t: params.t, limit: job.limit },
+        { q: job.query, subreddit: job.subreddit, sort: params.sort, t: params.t, limit: job.limit },
         context,
       );
-      batchesRun.push({ kind: job.kind, termCount: job.termIds.length, query: job.query, rawCount: response.posts.length });
+      batchesRun.push({ kind: job.kind, termCount: job.termIds.length, query: job.query, rawCount: response.posts.length, subreddit: job.subreddit });
       job.termIds.forEach((id) => succeededTermIds.add(id));
 
       const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
@@ -446,7 +537,14 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
     }
   }
 
-  return { posts: Array.from(byId.values()), batchesRun, discoveryTermsUsed: usedTermIds.length, errors };
+  return {
+    posts: Array.from(byId.values()),
+    batchesRun,
+    discoveryTermsUsed: usedTermIds.length,
+    searchesPlanned,
+    searchesSkippedBudget,
+    errors,
+  };
 }
 
 /** Credits a genuine opportunity back to every term that found it — the exploitation half of rotation. Called from pipeline.ts once analysis confirms is_opportunity. */

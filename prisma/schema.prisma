@@ -230,6 +230,24 @@ model ScanRun {
   opportunitiesCreated Int @default(0)
   discoveryTermsUsed   Int @default(0) // distinct DiscoveryTerm rows actually batched into a query this scan
 
+  // Honest partial-scan accounting: searchesPlanned is the full job list
+  // built before execution; searchesSkippedBudget is how many of those
+  // never even got attempted because the provider budget ran out before
+  // their turn (previously silently dropped from every metric — a scan
+  // that planned 11 searches and got budget-cut after 6 used to report
+  // exactly the same providerCalls as a scan that genuinely only needed 6).
+  // providerCalls (below) is calls actually attempted (success or fail);
+  // searchesPlanned - searchesSkippedBudget - providerCalls should be ~0.
+  searchesPlanned       Int @default(0)
+  searchesSkippedBudget Int @default(0)
+  // How many previously-ingested-but-not-yet-analyzed conversations
+  // (Conversation.analyzedAt IS NULL, from a prior scan that hit
+  // MAX_ANALYSIS_PER_SCAN) were pulled into this scan's analysis queue to
+  // fill remaining capacity after this scan's own fresh discoveries — see
+  // the backlog logic in lib/pipeline.ts. Distinguishes "this scan found a
+  // lot" from "this scan is catching up on a backlog."
+  candidatesCarriedOver Int @default(0)
+
   // Read back from ProviderUsageEvent for this campaign within the run's
   // time window, not written directly — see the note above on why this
   // deliberately never touches the ledger's own write path.
@@ -287,6 +305,18 @@ model Conversation {
   community       String?
   postedAt        DateTime
   ingestedAt      DateTime     @default(now())
+  // Set once Gemini has produced a real verdict for this conversation —
+  // regardless of whether it became an Opportunity. This is what makes
+  // "never analyzed" distinguishable from "analyzed and correctly
+  // rejected": before this field existed, both looked identical (no
+  // Opportunity row), so there was no safe way to find conversations that
+  // were ingested but silently dropped when a scan hit
+  // MAX_ANALYSIS_PER_SCAN — they just stayed unanalyzed forever. Null for
+  // every row ingested before this field shipped; those become a one-time
+  // backlog that gets genuinely analyzed (not just fabricated as "already
+  // handled") the next time capacity allows — see runScanForCampaign's
+  // backlog carryover logic in lib/pipeline.ts.
+  analyzedAt      DateTime?
   metadata        String? // opaque JSON, source-specific, never read by analysis/UI logic
   // JSON-stringified string[] of SearchSurface ids — legacy provenance from
   // the retired family-bundle rotation system. Null for rows ingested after
@@ -302,6 +332,7 @@ model Conversation {
   opportunity     Opportunity?
 
   @@unique([source, sourceId])
+  @@index([campaignId, analyzedAt])
 }
 
 model Opportunity {

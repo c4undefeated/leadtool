@@ -14,7 +14,7 @@
  *
  * Run with: npm run test:search-orchestrator
  */
-import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds } from "@/lib/sources/searchOrchestrator";
+import { buildBaselineQuery, packTermBatches, rankTerms, matchedTermIds, buildCommunityBonusJobs } from "@/lib/sources/searchOrchestrator";
 import type { DiscoveryTerm } from "@prisma/client";
 import type { RedditapisPost } from "@/lib/providers/redditapis/service";
 
@@ -209,6 +209,68 @@ function main() {
     "attribution: no literal match falls back to crediting the whole batch",
     noMatch.length === 2 && noMatch.includes("t1") && noMatch.includes("t2"),
     `got: ${JSON.stringify(noMatch)}`,
+  );
+
+  // --- buildCommunityBonusJobs (multi-community precision-boost rotation) ---
+  const NOW = Date.parse("2026-08-15T12:00:00Z");
+  const ONE_DAY = 86_400_000;
+
+  check(
+    "community-bonus: zero communities -> no bonus jobs",
+    buildCommunityBonusJobs([], "some query", 2, NOW).length === 0,
+    "expected empty array",
+  );
+
+  check(
+    "community-bonus: exactly one community -> no bonus jobs (handled as the single-scope case elsewhere)",
+    buildCommunityBonusJobs(["fitness"], "some query", 2, NOW).length === 0,
+    "expected empty array",
+  );
+
+  check(
+    "community-bonus: empty query -> no bonus jobs even with several communities",
+    buildCommunityBonusJobs(["fitness", "loseit", "xxfitness"], "", 2, NOW).length === 0,
+    "expected empty array",
+  );
+
+  check(
+    "community-bonus: maxBonusBatches=0 -> no bonus jobs",
+    buildCommunityBonusJobs(["fitness", "loseit"], "some query", 0, NOW).length === 0,
+    "expected empty array",
+  );
+
+  const threeCommunities = ["fitness", "loseit", "xxfitness"];
+  const bonus2of3 = buildCommunityBonusJobs(threeCommunities, "workout plan", 2, NOW);
+  check(
+    "community-bonus: respects maxBonusBatches cap (2 of 3 communities)",
+    bonus2of3.length === 2 && bonus2of3.every((j) => threeCommunities.includes(j.subreddit) && j.query === "workout plan"),
+    `got: ${JSON.stringify(bonus2of3)}`,
+  );
+  check(
+    "community-bonus: no duplicate subreddits within one scan's bonus batch",
+    new Set(bonus2of3.map((j) => j.subreddit)).size === bonus2of3.length,
+    `got: ${JSON.stringify(bonus2of3)}`,
+  );
+
+  const sameDay = buildCommunityBonusJobs(threeCommunities, "workout plan", 2, NOW + 60_000);
+  check(
+    "community-bonus: deterministic — same day produces the same selection",
+    JSON.stringify(bonus2of3) === JSON.stringify(sameDay),
+    `first: ${JSON.stringify(bonus2of3)}, second: ${JSON.stringify(sameDay)}`,
+  );
+
+  const nextDay = buildCommunityBonusJobs(threeCommunities, "workout plan", 2, NOW + ONE_DAY);
+  check(
+    "community-bonus: rotates to a different selection on a different day",
+    JSON.stringify(bonus2of3) !== JSON.stringify(nextDay),
+    `day1: ${JSON.stringify(bonus2of3)}, day2: ${JSON.stringify(nextDay)}`,
+  );
+
+  const dedupedInput = buildCommunityBonusJobs(["fitness", "fitness", "loseit"], "workout plan", 5, NOW);
+  check(
+    "community-bonus: duplicate community names in input are deduped",
+    dedupedInput.length === 2,
+    `got: ${JSON.stringify(dedupedInput)}`,
   );
 
   console.log(`\n${pass} passed, ${fail} failed, out of ${pass + fail} checks.\n`);
