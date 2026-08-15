@@ -34,7 +34,14 @@ const STATUS_GROUP: Record<string, "new" | "contacted" | "closed"> = {
   lost: "closed",
 };
 
-export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpportunity[] }) {
+export function OpportunitiesExplorer({
+  opportunities,
+  configuredSources = [],
+}: {
+  opportunities: RowOpportunity[];
+  /** Every sourceType the company's campaigns are actually configured for (e.g. reddit, twitter, manual) — unioned with sources found on existing opportunities below, so a source with zero opportunities so far still appears as a real filter option instead of looking unconfigured. */
+  configuredSources?: string[];
+}) {
   const [search, setSearch] = useState("");
   const [matchFilter, setMatchFilter] = useState<"all" | "high" | "potential" | "low">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "new" | "contacted" | "closed">("all");
@@ -46,8 +53,8 @@ export function OpportunitiesExplorer({ opportunities }: { opportunities: RowOpp
   const [bulkMessage, setBulkMessage] = useState<string | undefined>();
 
   const platforms = useMemo(
-    () => Array.from(new Set(opportunities.map((o) => o.conversation.source))),
-    [opportunities],
+    () => Array.from(new Set([...configuredSources, ...opportunities.map((o) => o.conversation.source)])),
+    [opportunities, configuredSources],
   );
 
   const categories = useMemo(
