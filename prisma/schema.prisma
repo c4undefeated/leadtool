@@ -251,11 +251,19 @@ model ScanRun {
   // Read back from ProviderUsageEvent for this campaign within the run's
   // time window, not written directly — see the note above on why this
   // deliberately never touches the ledger's own write path.
-  providerCalls     Int   @default(0)
-  providerCacheHits Int   @default(0)
-  providerSpendUsd  Float @default(0)
-  providerErrors    Int   @default(0)
-  aiErrors          Int   @default(0)
+  providerCalls      Int   @default(0)
+  providerCacheHits  Int   @default(0)
+  providerSpendUsd   Float @default(0)
+  providerErrors     Int   @default(0)
+  aiErrors           Int   @default(0)
+  // Estimate, not a ledger fact like providerSpendUsd above — Gemini has no
+  // equivalent per-call usage-event table in this codebase to read back
+  // from, so this is aiAnalyzedCount * a fixed per-call cost figure (see
+  // ESTIMATED_GEMINI_COST_PER_ANALYSIS_USD in lib/ai/client.ts), which was
+  // itself measured from real usageMetadata on live calls, not looked up
+  // from a pricing page. Good enough to answer "roughly what did this scan
+  // cost end to end," not precise enough to reconcile against a bill.
+  estimatedAiCostUsd Float @default(0)
 
   notConfigured Boolean @default(false)
 
