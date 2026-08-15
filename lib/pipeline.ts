@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getAdapter } from "@/lib/sources";
 import type { NormalizedConversation } from "@/lib/sources/types";
 import { analyzeConversation, ANALYSIS_PROMPT_VERSION } from "@/lib/ai/analysis";
+import { ESTIMATED_GEMINI_COST_PER_ANALYSIS_USD } from "@/lib/ai/client";
 import { priorityTierFromMatchScore } from "@/lib/ai/schemas";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import { creditOpportunityToTerms } from "@/lib/sources/searchOrchestrator";
@@ -477,6 +478,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
         providerSpendUsd: spend._sum.unitCostUsd ?? 0,
         providerErrors: termRuns.filter((r) => !r.success && !r.errorMessage?.startsWith("skipped:")).length,
         aiErrors: aiErrorCount,
+        estimatedAiCostUsd: toAnalyze.length * ESTIMATED_GEMINI_COST_PER_ANALYSIS_USD,
       },
     });
   } catch (err) {

@@ -1,12 +1,21 @@
 import { getLifetimeSpendUsd } from "./costLedger";
 import { getProviderHealth } from "./health";
 
-// We currently hold roughly $0.55 of real Redditapis testing balance. This
-// cap exists so a bug or an accidental loop can't quietly burn through it —
-// it is a testing-phase guard, not a real commercial budget system, and is
-// meant to be raised deliberately (env var) once there's a real plan/limit
-// to enforce instead.
-const DEFAULT_MAX_LIFETIME_SPEND_USD = 0.5;
+// This is a secondary, code-level ceiling layered ON TOP OF the real guard
+// below (MIN_LIVE_BALANCE_RESERVE_USD against the account's actual live
+// balance, read from Redditapis itself) — not the thing standing between
+// this deployment and overspending. That real guard means raising this
+// default doesn't increase actual financial exposure: the account still
+// physically cannot spend more than it holds, and checkBudget still stops
+// (gracefully — see the caller) once real balance runs low, regardless of
+// this number. $0.50 was sized for early single-scan manual testing, before
+// multi-batch discovery (up to ~11 calls/scan) and daily-cron campaigns
+// existed — at that volume it was closer to a same-day ceiling than a
+// meaningful safety margin. Raised to a number that stops mattering in
+// practice before the live-balance check does, for any account funded
+// beyond pocket-change; override via env var for anything more specific
+// than that.
+const DEFAULT_MAX_LIFETIME_SPEND_USD = 5;
 // Never let a call bring the live account balance below this — a safety
 // margin on top of the ledger check, in case the ledger and the provider's
 // own balance have drifted (e.g. a call succeeded but the DB write failed).

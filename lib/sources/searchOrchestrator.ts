@@ -210,6 +210,16 @@ const SEARCH_CONCURRENCY = Number(process.env.SEARCH_CONCURRENCY) || 3;
 // (deterministic, not random — see buildCommunityBonusJobs) rather than
 // looping over all of them every scan.
 const MAX_COMMUNITY_BONUS_BATCHES = Number(process.env.MAX_COMMUNITY_BONUS_BATCHES) || 2;
+// Extra pages for the precision query specifically (verified live: the
+// `after` cursor returns a genuinely disjoint page, not a re-rank — see
+// the pagination note in runDiscovery). Defaults to 1 (no pagination,
+// unchanged behavior) deliberately: Redditapis is cheap per call, but this
+// deployment's actual account balance is small (a few hundred read calls
+// total), so "capability exists, default stays conservative" is the
+// correct posture — raise via env var on an account funded for the volume
+// you actually want. Capped at 5 so a misconfiguration can't quietly
+// multiply every scan's precision-layer cost by an unbounded amount.
+const PRECISION_QUERY_PAGES = Math.min(5, Math.max(1, Number(process.env.PRECISION_QUERY_PAGES) || 1));
 
 export type DiscoveryParams = {
   campaignId: string;
@@ -431,58 +441,95 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
       return;
     }
     try {
+      // recordPage merges one page's results into the shared dedup map and
+      // writes its own DiscoveryTermRun row — factored out so pagination
+      // (below, precision job only) can call it again for page 2+ without
+      // duplicating the merge/keptCount/cache-hit-lookup/runRow logic.
+      const recordPage = async (response: Awaited<ReturnType<typeof redditapis.searchRedditapis>>) => {
+        const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
+        let keptCount = 0;
+        for (const post of response.posts) {
+          if (post.created_utc * 1000 >= cutoffMs) keptCount += 1;
+          const id = post.name || post.id;
+          const labels = job.kind === "precision" ? ["precision"] : matchedTermIds(post, batchTermRefs);
+          if (job.kind === "discovery") {
+            for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
+          }
+          const existing = byId.get(id);
+          if (existing) {
+            for (const l of labels) if (!existing.foundBy.includes(l)) existing.foundBy.push(l);
+          } else {
+            byId.set(id, { post, foundBy: [...labels] });
+          }
+        }
+
+        // Best-effort cache-hit lookup — reads back the ledger row this exact
+        // call just wrote (lib/providers/redditapis/service.ts), the same
+        // pattern lib/pipeline.ts already uses for its own cacheHit field.
+        // Deliberately doesn't touch service.ts's own write path, so this
+        // observability addition carries zero risk to budget/ledger
+        // correctness — worst case here is a mis-attributed cacheHit flag on
+        // a metrics row, never a wrong charge.
+        let cacheHit = false;
+        try {
+          const lastUsage = await prisma.providerUsageEvent.findFirst({
+            where: { campaignId: params.campaignId },
+            orderBy: { createdAt: "desc" },
+          });
+          cacheHit = lastUsage?.cacheHit ?? false;
+        } catch {
+          // metrics-only lookup — never worth failing the scan over
+        }
+
+        runRows.push({
+          termIds: JSON.stringify(job.termIds),
+          kind: job.kind,
+          query: job.query,
+          rawCount: response.posts.length,
+          keptCount,
+          cacheHit,
+          success: true,
+          errorMessage: null,
+        });
+        return response;
+      };
+
       const response = await redditapis.searchRedditapis(
         { q: job.query, subreddit: job.subreddit, sort: params.sort, t: params.t, limit: job.limit },
         context,
       );
       batchesRun.push({ kind: job.kind, termCount: job.termIds.length, query: job.query, rawCount: response.posts.length, subreddit: job.subreddit });
       job.termIds.forEach((id) => succeededTermIds.add(id));
+      await recordPage(response);
 
-      const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
-      let keptCount = 0;
-      for (const post of response.posts) {
-        if (post.created_utc * 1000 >= cutoffMs) keptCount += 1;
-        const id = post.name || post.id;
-        const labels = job.kind === "precision" ? ["precision"] : matchedTermIds(post, batchTermRefs);
-        if (job.kind === "discovery") {
-          for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
-        }
-        const existing = byId.get(id);
-        if (existing) {
-          for (const l of labels) if (!existing.foundBy.includes(l)) existing.foundBy.push(l);
-        } else {
-          byId.set(id, { post, foundBy: [...labels] });
+      // Pagination — precision job only (the campaign's own curated,
+      // highest-signal query), off by default (PRECISION_QUERY_PAGES=1).
+      // Real page-2 mechanics verified live: the `after` cursor returns a
+      // genuinely disjoint page (zero overlap with page 1), not a re-rank —
+      // so this is real additional recall, not wasted spend, when a real
+      // page came back full (rawCount === limit, meaning more likely
+      // exists). Each page is its own real $0.002 call through the exact
+      // same searchRedditapis() -> service.ts path as everything else, so
+      // budget/cache/ledger stay fully in force per page — a mid-pagination
+      // budget exhaustion just stops the loop, it doesn't throw past it.
+      if (job.kind === "precision" && PRECISION_QUERY_PAGES > 1 && response.posts.length >= job.limit) {
+        let after = response.after ?? undefined;
+        for (let page = 1; page < PRECISION_QUERY_PAGES && after; page++) {
+          try {
+            const nextResponse = await redditapis.searchRedditapis(
+              { q: job.query, subreddit: job.subreddit, sort: params.sort, t: params.t, limit: job.limit, after },
+              context,
+            );
+            await recordPage(nextResponse);
+            if (nextResponse.posts.length < job.limit) break; // short page — provider has nothing further
+            after = nextResponse.after ?? undefined;
+          } catch (err) {
+            if (err instanceof RedditapisBudgetExceededError) budgetExhausted = true;
+            console.error(`[searchOrchestrator] precision pagination page ${page + 1} failed for campaign ${params.campaignId}:`, err);
+            break; // stop paginating, keep whatever pages already succeeded
+          }
         }
       }
-
-      // Best-effort cache-hit lookup — reads back the ledger row this exact
-      // call just wrote (lib/providers/redditapis/service.ts), the same
-      // pattern lib/pipeline.ts already uses for its own cacheHit field.
-      // Deliberately doesn't touch service.ts's own write path, so this
-      // observability addition carries zero risk to budget/ledger
-      // correctness — worst case here is a mis-attributed cacheHit flag on
-      // a metrics row, never a wrong charge.
-      let cacheHit = false;
-      try {
-        const lastUsage = await prisma.providerUsageEvent.findFirst({
-          where: { campaignId: params.campaignId },
-          orderBy: { createdAt: "desc" },
-        });
-        cacheHit = lastUsage?.cacheHit ?? false;
-      } catch {
-        // metrics-only lookup — never worth failing the scan over
-      }
-
-      runRows.push({
-        termIds: JSON.stringify(job.termIds),
-        kind: job.kind,
-        query: job.query,
-        rawCount: response.posts.length,
-        keptCount,
-        cacheHit,
-        success: true,
-        errorMessage: null,
-      });
     } catch (err) {
       if (err instanceof RedditapisBudgetExceededError) budgetExhausted = true;
       const message = err instanceof Error ? err.message : "Unknown error.";

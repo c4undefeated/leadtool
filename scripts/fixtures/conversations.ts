@@ -17,7 +17,8 @@ export type EvalCase = {
     | "stale"
     | "false-positive-risk"
     | "should-return-zero"
-    | "indirect-need";
+    | "indirect-need"
+    | "broad-topic-no-need";
   conversation: NormalizedConversation;
   expectOpportunity: boolean;
   /** Optional: assert the safety_label lands in this set, when relevant. */
@@ -242,6 +243,25 @@ export const EVAL_CASES: EvalCase[] = [
       originalText:
         "Been going consistently for six months now, eating in a surplus, tracking everything, and I genuinely haven't gained any muscle. I've switched my program twice already and nothing changes. Starting to think I'm doing something fundamentally wrong but I don't know what.",
       url: "https://example.com/eval/indirect-need-2",
+      community: "r/Fitness",
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "broad-topic-no-need-1",
+    category: "broad-topic-no-need",
+    offer: INDIRECT_NEED_OFFER,
+    expectOpportunity: false,
+    notes:
+      "The other half of the acceptance test: broad discovery would legitimately surface this post (it's squarely on-topic, same 'workout plans' language as indirect-need-1), but there is no personal need in it at all — just someone sharing a resource. Proves broad discovery does not equal an automatic lead; qualification still has to find an actual person with an actual current need.",
+    conversation: {
+      source: "manual",
+      sourceId: null,
+      authorRef: "u/fitnessblogger",
+      title: "Free resource: 50 workout plans for every goal",
+      originalText:
+        "Made a big list of 50 free workout plans covering strength, hypertrophy, fat loss, and general fitness — bookmark this if it's useful, figured the sub would like it. Let me know if you want more like this.",
+      url: "https://example.com/eval/broad-topic-no-need-1",
       community: "r/Fitness",
       postedAt: daysAgo(0),
     },

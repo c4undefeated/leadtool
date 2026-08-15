@@ -201,21 +201,30 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             <>
               <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2 mt-4">Recent scans</p>
               <div className="flex flex-col gap-1">
-                {campaign.scanRuns.map((run) => (
-                  <p key={run.id} className="text-xs font-mono text-muted">
-                    {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
-                    {run.uniqueConversations} unique → {run.aiAnalyzedCount} analyzed
-                    {run.candidatesCarriedOver > 0 ? ` (${run.candidatesCarriedOver} backlog)` : ""} →{" "}
-                    <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
-                    {run.opportunitiesCreated === 1 ? "y" : "ies"}
-                    {run.searchesSkippedBudget > 0
-                      ? ` — ${run.searchesSkippedBudget} of ${run.searchesPlanned} planned searches skipped (budget)`
-                      : ""}
-                    {run.providerErrors > 0 || run.aiErrors > 0
-                      ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
-                      : ""}
-                  </p>
-                ))}
+                {campaign.scanRuns.map((run) => {
+                  const rejectedByGemini = Math.max(0, run.aiAnalyzedCount - run.opportunitiesCreated - run.aiErrors);
+                  const totalCost = run.providerSpendUsd + run.estimatedAiCostUsd;
+                  return (
+                    <p key={run.id} className="text-xs font-mono text-muted">
+                      {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
+                      {run.uniqueConversations} unique → {run.aiAnalyzedCount} sent to Gemini
+                      {run.candidatesCarriedOver > 0 ? ` (${run.candidatesCarriedOver} backlog)` : ""} →{" "}
+                      {rejectedByGemini} rejected →{" "}
+                      <span className="text-ink">{run.opportunitiesCreated}</span> opportunit
+                      {run.opportunitiesCreated === 1 ? "y" : "ies"}
+                      {" · "}
+                      <span title="Redditapis spend + estimated Gemini cost — the AI figure is a measured estimate, not a ledger fact.">
+                        ~${totalCost.toFixed(3)}
+                      </span>
+                      {run.searchesSkippedBudget > 0
+                        ? ` — ${run.searchesSkippedBudget} of ${run.searchesPlanned} planned searches skipped (budget)`
+                        : ""}
+                      {run.providerErrors > 0 || run.aiErrors > 0
+                        ? ` (${run.providerErrors + run.aiErrors} error${run.providerErrors + run.aiErrors === 1 ? "" : "s"})`
+                        : ""}
+                    </p>
+                  );
+                })}
               </div>
             </>
           )}
