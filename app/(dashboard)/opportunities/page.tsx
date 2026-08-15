@@ -4,29 +4,44 @@ import { OpportunitiesExplorer } from "@/components/OpportunitiesExplorer";
 
 export default async function OpportunitiesPage() {
   const user = await requireUser();
+  const companyId = user.companyId ?? "__none__";
 
-  const opportunities = await prisma.opportunity.findMany({
-    where: { conversation: { campaign: { companyId: user.companyId ?? "__none__" } } },
-    select: {
-      id: true,
-      matchScore: true,
-      priorityTier: true,
-      safetyLabel: true,
-      intentCategory: true,
-      status: true,
-      conversation: {
-        select: {
-          title: true,
-          originalText: true,
-          community: true,
-          authorRef: true,
-          postedAt: true,
-          source: true,
+  const [opportunities, campaignSources] = await Promise.all([
+    prisma.opportunity.findMany({
+      where: { conversation: { campaign: { companyId } } },
+      select: {
+        id: true,
+        matchScore: true,
+        priorityTier: true,
+        safetyLabel: true,
+        intentCategory: true,
+        status: true,
+        conversation: {
+          select: {
+            title: true,
+            originalText: true,
+            community: true,
+            authorRef: true,
+            postedAt: true,
+            source: true,
+          },
         },
       },
-    },
-    orderBy: [{ matchScore: "desc" }, { analyzedAt: "desc" }],
-  });
+      orderBy: [{ matchScore: "desc" }, { analyzedAt: "desc" }],
+    }),
+    // The platform filter should reflect which sources are actually
+    // configured for this company (e.g. an active X campaign), not just
+    // which ones happen to have already produced a genuine opportunity —
+    // otherwise a newly-connected source with zero opportunities so far
+    // (an honest, expected state, not a bug) looks like it isn't wired up
+    // at all in the filter UI.
+    prisma.campaign.findMany({
+      where: { companyId },
+      select: { sourceType: true },
+      distinct: ["sourceType"],
+    }),
+  ]);
+  const configuredSources = campaignSources.map((c) => c.sourceType);
 
   return (
     <div className="flex flex-col gap-6">
@@ -44,7 +59,7 @@ export default async function OpportunitiesPage() {
           </p>
         </div>
       ) : (
-        <OpportunitiesExplorer opportunities={opportunities} />
+        <OpportunitiesExplorer opportunities={opportunities} configuredSources={configuredSources} />
       )}
     </div>
   );
