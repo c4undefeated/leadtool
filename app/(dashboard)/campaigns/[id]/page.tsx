@@ -32,6 +32,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       _count: { select: { conversations: true } },
       company: { include: { offer: true } },
       discoveryTerms: { where: { active: true } },
+      xDiscoveryPhrases: { where: { active: true } },
       scanRuns: { orderBy: { startedAt: "desc" }, take: 5 },
     },
   });
@@ -57,16 +58,25 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const communities = campaign.keywords.filter((k) => k.type === "subreddit");
 
   // Discovery-pool summary — a real, honest view of the rotation pool
-  // ("these are seeds, not the whole universe" made concrete), not just copy.
+  // ("these are seeds, not the whole universe" made concrete), not just
+  // copy. Reddit campaigns rotate DiscoveryTerm (short topic concepts); X
+  // campaigns rotate their own XDiscoveryPhrase pool (natural conversational
+  // phrases, see lib/ai/xPhrases.ts) — normalized to one shape here so the
+  // rest of this section doesn't need two parallel branches of JSX.
+  const isXCampaign = campaign.sourceType === "twitter";
+  const poolNoun = isXCampaign ? "phrases" : "concepts";
+  const discoveryPool = isXCampaign
+    ? campaign.xDiscoveryPhrases.map((p) => ({ id: p.id, term: p.phrase, category: p.category, timesUsed: p.timesUsed, candidatesFound: p.candidatesFound, opportunitiesFound: p.opportunitiesFound }))
+    : campaign.discoveryTerms.map((t) => ({ id: t.id, term: t.term, category: t.category, timesUsed: t.timesUsed, candidatesFound: t.candidatesFound, opportunitiesFound: t.opportunitiesFound }));
   const discoveryCategoryCounts = new Map<string, number>();
-  for (const t of campaign.discoveryTerms) {
+  for (const t of discoveryPool) {
     discoveryCategoryCounts.set(t.category, (discoveryCategoryCounts.get(t.category) ?? 0) + 1);
   }
-  const topPerformers = [...campaign.discoveryTerms]
+  const topPerformers = [...discoveryPool]
     .filter((t) => t.opportunitiesFound > 0)
     .sort((a, b) => b.opportunitiesFound - a.opportunitiesFound)
     .slice(0, 6);
-  const untested = campaign.discoveryTerms.filter((t) => t.timesUsed === 0);
+  const untested = discoveryPool.filter((t) => t.timesUsed === 0);
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -143,15 +153,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
               </button>
             </form>
           </div>
-          {campaign.discoveryTerms.length > 0 ? (
+          {discoveryPool.length > 0 ? (
             <>
               <p className="text-sm text-muted mb-4">
                 Scout read your offer profile (Settings → Offer) and generated{" "}
-                <span className="text-ink">{campaign.discoveryTerms.length}</span> discovery concepts — the
-                language a real prospect might actually use, not necessarily your own words — and rotates a
-                batch of them into every scan. This is the primary way Scout finds people, not the precision
-                terms below. Concepts that keep finding real opportunities get prioritized; ones that don't
-                fade without ever being fully dropped.
+                <span className="text-ink">{discoveryPool.length}</span> discovery {poolNoun} —{" "}
+                {isXCampaign
+                  ? "natural, conversational phrases a real prospect might actually tweet, not necessarily your own words"
+                  : "the language a real prospect might actually use, not necessarily your own words"}{" "}
+                — and rotates a batch of them into every scan. This is the primary way Scout finds people, not
+                the precision terms below. {poolNoun === "phrases" ? "Phrases" : "Concepts"} that keep finding
+                real opportunities get prioritized; ones that don't fade without ever being fully dropped.
               </p>
               <div className="flex flex-wrap gap-2 mb-4">
                 {Array.from(discoveryCategoryCounts.entries()).map(([category, count]) => (
@@ -192,7 +204,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </>
           ) : (
             <p className="text-sm text-muted">
-              No discovery concepts generated yet — run a scan (or finish your offer profile in Settings →
+              No discovery {poolNoun} generated yet — run a scan (or finish your offer profile in Settings →
               Offer first) to have Scout build one.
             </p>
           )}
@@ -206,7 +218,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                   const totalCost = run.providerSpendUsd + run.estimatedAiCostUsd;
                   return (
                     <p key={run.id} className="text-xs font-mono text-muted">
-                      {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} terms → {run.rawProviderResults} raw →{" "}
+                      {relativeTime(run.startedAt)}: {run.discoveryTermsUsed} {poolNoun} → {run.rawProviderResults} raw →{" "}
                       {run.uniqueConversations} unique → {run.aiAnalyzedCount} sent to Gemini
                       {run.candidatesCarriedOver > 0 ? ` (${run.candidatesCarriedOver} backlog)` : ""} →{" "}
                       {rejectedByGemini} rejected →{" "}

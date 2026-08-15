@@ -45,3 +45,27 @@ export const INDIRECT_NEED_OFFER: Offer = {
   engagementStyle: "helpful_first",
   updatedAt: new Date(),
 };
+
+/**
+ * A deliberately non-fitness vertical — residential/emergency plumbing —
+ * used only to prove IntentScout's X/Twitter discovery engine (and the
+ * shared Gemini qualification engine behind it) is genuinely
+ * vertical-agnostic, not fitness-specific. See conversations.ts's
+ * "x-*" fixtures and scripts/testXPhraseGeneration.ts.
+ */
+export const PLUMBING_OFFER: Offer = {
+  id: "eval-offer-plumbing",
+  companyId: "eval-company-plumbing",
+  verticalTemplateKey: "home_services",
+  businessType: "Residential plumbing and emergency repair",
+  whatYouSell: "Same-day residential plumbing repair — leaks, clogged drains, water heater repair/replacement, burst pipes",
+  problemsSolved: "Active leaks, clogged or slow drains, no hot water, burst or frozen pipes, failing water heaters",
+  idealCustomer: "Homeowners with an active plumbing problem who need it fixed quickly, not DIYers doing routine maintenance",
+  priceRangeMin: 150,
+  priceRangeMax: 2000,
+  geography: "Within 25 miles of Columbus, OH",
+  excludedAudiences: "Commercial/industrial plumbing, new-construction plumbing bids",
+  brandVoice: "Straightforward, reassuring, no upsell pressure",
+  engagementStyle: "helpful_first",
+  updatedAt: new Date(),
+};

@@ -1,6 +1,6 @@
 import type { Offer } from "@prisma/client";
 import type { NormalizedConversation } from "@/lib/sources/types";
-import { INDIRECT_NEED_OFFER } from "./offer";
+import { INDIRECT_NEED_OFFER, PLUMBING_OFFER } from "./offer";
 
 export type EvalCase = {
   id: string;
@@ -18,7 +18,14 @@ export type EvalCase = {
     | "false-positive-risk"
     | "should-return-zero"
     | "indirect-need"
-    | "broad-topic-no-need";
+    | "broad-topic-no-need"
+    | "x-direct-demand"
+    | "x-recommendation"
+    | "x-problem"
+    | "x-outcome"
+    | "x-tool-solution"
+    | "x-alternative-comparison"
+    | "x-casual-reject";
   conversation: NormalizedConversation;
   expectOpportunity: boolean;
   /** Optional: assert the safety_label lands in this set, when relevant. */
@@ -301,6 +308,135 @@ export const EVAL_CASES: EvalCase[] = [
         "Made a big list of 50 free workout plans covering strength, hypertrophy, fat loss, and general fitness — bookmark this if it's useful, figured the sub would like it. Let me know if you want more like this.",
       url: "https://example.com/eval/broad-topic-no-need-1",
       community: "r/Fitness",
+      postedAt: daysAgo(0),
+    },
+  },
+
+  // --- X/Twitter acceptance tests: intent-shape diversity + vertical-agnosticism ---
+  // All seven use PLUMBING_OFFER (a deliberately non-fitness vertical) and
+  // tweet-shaped conversations (source: "twitter", title: null, informal
+  // text, no community) — proving the shared Gemini qualification engine
+  // recognizes buying intent across every shape the X implementation spec
+  // names (direct demand, recommendation, problem, outcome, tool/solution,
+  // alternative/comparison), rejects casual non-intent, and that none of
+  // this depends on the fitness vocabulary the rest of this fixture file
+  // happens to use elsewhere.
+  {
+    id: "x-direct-demand-1",
+    category: "x-direct-demand",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Explicit want + urgency, phrased conversationally as a real tweet would be, not a formal request.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-direct-demand-1",
+      authorRef: "@newhomeowner_oh",
+      title: null,
+      originalText: "need a plumber out here today, pipe under the kitchen sink is leaking bad and I don't know how to stop it",
+      url: "https://x.com/newhomeowner_oh/status/tw-x-direct-demand-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-recommendation-1",
+    category: "x-recommendation",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Asking the community for a recommendation/referral after a bad experience with someone else — real, current need.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-recommendation-1",
+      authorRef: "@columbus_reno",
+      title: null,
+      originalText: "anyone in Columbus know a plumber who actually shows up when they say they will? the last guy flaked on me twice this week",
+      url: "https://x.com/columbus_reno/status/tw-x-recommendation-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-problem-1",
+    category: "x-problem",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Problem-based intent — a specific, current, worsening problem with no explicit ask and no literal 'plumber'/'plumbing' — proves intent can be read from the problem language alone, same principle as the Reddit indirect-need fixtures.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-problem-1",
+      authorRef: "@tired_of_this_house",
+      title: null,
+      originalText: "water heater's been making this awful banging noise for two days now and today we barely got any hot water at all",
+      url: "https://x.com/tired_of_this_house/status/tw-x-problem-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-outcome-1",
+    category: "x-outcome",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Outcome-based intent — expressing the goal/result wanted, with urgency and willingness to spend, no literal service vocabulary at all.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-outcome-1",
+      authorRef: "@renovating_slowly",
+      title: null,
+      originalText: "at this point I just want hot water again before the weekend, honestly don't even care what it costs anymore",
+      url: "https://x.com/renovating_slowly/status/tw-x-outcome-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-tool-solution-1",
+    category: "x-tool-solution",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Tool/solution-seeking — tried a DIY tool, it didn't work, still stuck. A prior failed self-attempt plus an ongoing problem is real signal even without naming the service.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-tool-solution-1",
+      authorRef: "@diy_attempt_3",
+      title: null,
+      originalText: "tried a drain snake on the bathroom sink and it barely helped, still draining so slow it's basically standing water after a shower",
+      url: "https://x.com/diy_attempt_3/status/tw-x-tool-solution-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-alternative-comparison-1",
+    category: "x-alternative-comparison",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: true,
+    notes: "Comparison/alternative-seeking against a specific named competitor, decision-stage, with an active unresolved problem behind it.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-alternative-comparison-1",
+      authorRef: "@sticker_shock_23",
+      title: null,
+      originalText: "roto rooter quoted me $600 just to come LOOK at a clogged drain, is that normal or should I be finding someone else at this point",
+      url: "https://x.com/sticker_shock_23/status/tw-x-alternative-comparison-1",
+      community: null,
+      postedAt: daysAgo(0),
+    },
+  },
+  {
+    id: "x-casual-reject-1",
+    category: "x-casual-reject",
+    offer: PLUMBING_OFFER,
+    expectOpportunity: false,
+    notes: "The negative control: broad discovery would legitimately surface this (same 'faucet' topic area), but the problem is already resolved and there's no live need — proves broad X discovery doesn't auto-create an opportunity out of casual, already-solved chatter.",
+    conversation: {
+      source: "twitter",
+      sourceId: "tw-x-casual-reject-1",
+      authorRef: "@weekend_diyer",
+      title: null,
+      originalText: "finally fixed my leaky kitchen faucet myself this weekend, feels so good to actually DIY something for once lol",
+      url: "https://x.com/weekend_diyer/status/tw-x-casual-reject-1",
+      community: null,
       postedAt: daysAgo(0),
     },
   },

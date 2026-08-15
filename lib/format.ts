@@ -42,9 +42,19 @@ export const INTENT_CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-/** Discovery-term category labels — see lib/ai/schemas.ts's DISCOVERY_TERM_CATEGORIES. "precision" isn't a generated category; it's the campaign's own configured keywords/topics, always-on. */
+/**
+ * Discovery-pool category labels — covers both Reddit's DiscoveryTerm
+ * categories (DISCOVERY_TERM_CATEGORIES) and X's XDiscoveryPhrase
+ * categories (X_PHRASE_CATEGORIES), both in lib/ai/schemas.ts. The two
+ * enums are deliberately separate (short topic concepts vs natural
+ * conversational phrases) but share this one label map since a few names
+ * overlap and none collide in meaning. "precision" isn't a generated
+ * category in either pool; it's the campaign's own configured
+ * keywords/topics, always-on.
+ */
 export const DISCOVERY_CATEGORY_LABELS: Record<string, string> = {
   precision: "Your keywords/topics",
+  // DiscoveryTerm (Reddit)
   service: "Service",
   problem: "Problem",
   outcome: "Outcome",
@@ -58,6 +68,13 @@ export const DISCOVERY_CATEGORY_LABELS: Record<string, string> = {
   recommendation_language: "Recommendation language",
   adjacent_concept: "Adjacent concept",
   other: "Other",
+  // XDiscoveryPhrase (X/Twitter)
+  direct_demand: "Direct demand",
+  recommendation: "Recommendation",
+  solution_seeking: "Solution seeking",
+  comparison: "Comparison",
+  tool_product_service: "Tool/product/service",
+  customer_language: "Customer language",
 };
 
 /** Legacy labels for the retired family-bundle rotation system — kept only so conversations ingested before DiscoveryTerm shipped still resolve their original "discovered through" provenance via Conversation.foundBySurfaces. Never used for new data. */
