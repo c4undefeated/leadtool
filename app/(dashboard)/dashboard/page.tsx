@@ -53,8 +53,8 @@ export default async function DashboardPage() {
           <div className="rounded-lg border border-dashed border-line bg-surface p-8 text-center">
             <p className="font-display text-xl mb-2">No strong opportunities found.</p>
             <p className="text-muted text-sm max-w-md mx-auto">
-              That's a valid, honest result — Scout doesn't invent leads to fill the feed. Run a scan or
-              import a conversation from a campaign to see something here.
+              That's a valid, honest result — Scout doesn't invent leads to fill the feed. Active campaigns
+              scan automatically once a day, or import a conversation from a campaign to see something here.
             </p>
           </div>
         ) : (

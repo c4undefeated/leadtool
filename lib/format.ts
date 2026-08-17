@@ -134,6 +134,54 @@ export function scanDisabledReason(params: {
   return undefined;
 }
 
+/** Campaign.lastScanStatus labels — see lib/dailyScan.ts's classifyScanStatus for exactly how a scan result maps to one of these, plus the "running" state set the moment a scan is claimed. */
+export const SCAN_STATUS_LABELS: Record<string, { text: string; className: string }> = {
+  running: { text: "Scanning…", className: "pill-neutral" },
+  completed: { text: "Completed", className: "pill-good" },
+  failed: { text: "Failed — retrying automatically", className: "pill-caution" },
+  not_configured: { text: "Needs setup", className: "pill-risk" },
+};
+
+// The daily cron's fixed trigger time (see vercel.json's "20 18 * * *") —
+// 18:20 UTC, which is 2:20 PM Eastern Daylight Time (roughly Mar-Nov) or
+// 1:20 PM Eastern Standard Time (roughly Nov-Mar). Vercel cron schedules
+// are fixed UTC and do not shift for daylight saving, so this drifts an
+// hour relative to clock-on-the-wall Eastern time for part of the year —
+// documented tradeoff (see the cron route's own comment), not a bug.
+const DAILY_SCAN_UTC_HOUR = 18;
+const DAILY_SCAN_UTC_MINUTE = 20;
+
+/**
+ * The next occurrence of the daily cron's scheduled UTC time, purely for
+ * passive "next scan" UI copy — informational only. The cron's actual due
+ * logic (lib/dailyScan.ts's isCampaignDue) is independent of this and
+ * governs what really happens; this just describes it to a user in plain
+ * language.
+ */
+export function nextDailyScanAt(from: Date = new Date()): Date {
+  const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), DAILY_SCAN_UTC_HOUR, DAILY_SCAN_UTC_MINUTE, 0, 0));
+  if (next.getTime() <= from.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
+// This renders server-side (a Server Component, no browser timezone
+// available), and the target audience is explicitly US Eastern-time
+// businesses — so format in America/New_York explicitly via Intl (whose
+// IANA tzdata handles the EDT/EST switch correctly on its own) rather than
+// relying on the server process's own local timezone, which on a typical
+// Vercel deployment is UTC and would otherwise show a misleading time.
+function easternDateKey(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+/** "today, ~2:20 PM EDT" / "tomorrow, ~1:20 PM EST" — correct for either side of the DST switch, regardless of the server's own local timezone. */
+export function describeNextScan(from: Date = new Date()): string {
+  const next = nextDailyScanAt(from);
+  const isToday = easternDateKey(next) === easternDateKey(from);
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(next);
+  return `${isToday ? "today" : "tomorrow"}, ~${time}`;
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   new: "New",
   reviewed: "Reviewed",

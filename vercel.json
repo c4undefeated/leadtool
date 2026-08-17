@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/scan-campaigns",
-      "schedule": "0 0 * * *"
+      "schedule": "20 18 * * *"
     }
   ]
 }
