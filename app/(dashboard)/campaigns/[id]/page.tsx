@@ -9,8 +9,8 @@ import {
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
 import { regenerateDiscoveryTermsAction } from "@/lib/actions/discovery";
-import { isAiConfigured } from "@/lib/sourceAvailability";
-import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTime } from "@/lib/format";
+import { isAiConfigured, isManualScanUiEnabled } from "@/lib/sourceAvailability";
+import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTime, SCAN_STATUS_LABELS, describeNextScan } from "@/lib/format";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
@@ -45,6 +45,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const adapter = getAdapter(campaign.sourceType);
   const health = await adapter.health();
   const aiReady = isAiConfigured();
+  const ENABLE_MANUAL_SCAN_UI = isManualScanUiEnabled();
   const disabledReason = scanDisabledReason({ sourceType: campaign.sourceType, aiReady, healthStatus: health.status });
   const vertical = campaign.company.offer ? getVerticalTemplate(campaign.company.offer.verticalTemplateKey) : null;
 
@@ -88,8 +89,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             conversation{campaign._count.conversations === 1 ? "" : "s"} · {opportunityCount} opportunit
             {opportunityCount === 1 ? "y" : "ies"}
           </p>
-          <p className="text-xs font-mono text-muted mt-1">
-            Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never yet"}
+          <p className="text-xs font-mono text-muted mt-1 flex items-center gap-2">
+            <span>Last scan: {campaign.lastScanAt ? new Date(campaign.lastScanAt).toLocaleString() : "never yet"}</span>
+            {campaign.sourceType !== "manual" && campaign.lastScanStatus && (
+              <span className={`pill ${SCAN_STATUS_LABELS[campaign.lastScanStatus]?.className ?? "pill-neutral"}`} title={campaign.lastScanError ?? undefined}>
+                {SCAN_STATUS_LABELS[campaign.lastScanStatus]?.text ?? campaign.lastScanStatus}
+              </span>
+            )}
           </p>
           {campaign.lastScanAt && campaign.lastScanIngested !== null && (
             <p className="text-xs font-mono text-muted mt-1">
@@ -109,9 +115,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </p>
           )}
           {campaign.status === "active" && campaign.sourceType !== "manual" && (
-            <p className="text-xs font-mono text-muted mt-1">
-              Scout automatically re-checks this campaign daily while it's Active.
-            </p>
+            <p className="text-xs font-mono text-muted mt-1">Next scan: {describeNextScan()}</p>
+          )}
+          {campaign.status === "paused" && campaign.sourceType !== "manual" && (
+            <p className="text-xs font-mono text-muted mt-1">Paused — Scout won't scan this campaign until it's Active again.</p>
           )}
         </div>
         <form action={toggleCampaignStatusAction}>
@@ -123,13 +130,26 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       </div>
 
       <section className="rounded-lg border border-line bg-surface p-5">
-        <h2 className="font-medium text-sm mb-3">Live scanning</h2>
+        <h2 className="font-medium text-sm mb-1">Live scanning</h2>
+        {campaign.sourceType === "manual" ? (
+          <p className="text-sm text-muted mb-3">
+            This campaign uses manual import — add conversations directly below instead of automatic scanning.
+          </p>
+        ) : (
+          <p className="text-sm text-muted mb-3">
+            Scout scans this campaign automatically, once a day, while it's Active — nothing to click. New
+            opportunities just show up here and in your feed.
+            {disabledReason ? ` ${disabledReason}` : ""}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-4 mb-3">
-          <RunScanButton
-            campaignId={campaign.id}
-            disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
-            disabledReason={disabledReason}
-          />
+          {ENABLE_MANUAL_SCAN_UI && (
+            <RunScanButton
+              campaignId={campaign.id}
+              disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
+              disabledReason={disabledReason}
+            />
+          )}
           {campaign.sourceType !== "manual" && (
             <LeadRecencySelector campaignId={campaign.id} value={campaign.maxLeadAgeHours} />
           )}

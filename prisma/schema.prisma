@@ -94,6 +94,33 @@ model Campaign {
   lastScanSkippedJunk       Int?
   lastScanOpportunities     Int?
   lastScanCacheHit          Boolean?
+
+  // --- Always-on daily scanning (lib/dailyScan.ts) ---
+  // lastScanAt above already means "last scan COMPLETED" (set at the very
+  // end of runScanForCampaign) — kept as-is for backward compat with
+  // existing UI/due-check reads. These add what that alone can't express:
+  // an in-flight attempt, and a database-backed claim/lease so two
+  // overlapping cron invocations (Vercel explicitly warns these can happen)
+  // never scan the same campaign at once.
+  //
+  // lastScanStartedAt: when the current/most recent scan ATTEMPT began —
+  // distinct from lastScanAt (completion), so "started but never finished"
+  // is visible instead of silently indistinguishable from "never ran."
+  lastScanStartedAt DateTime?
+  // running | completed | failed | not_configured — see lib/dailyScan.ts's
+  // classifyScanStatus for exactly how a raw IngestResult maps to this.
+  // Nullable: never set for a campaign that has never been scanned.
+  lastScanStatus String?
+  // Short, admin-facing failure reason (never a raw provider/API secret) —
+  // null on success. Truncated at write time; see lib/dailyScan.ts.
+  lastScanError String?
+  // Lease lock: non-null while a scan is actively claimed/running for this
+  // campaign. A claim is only valid while
+  // now - scanLockedAt < SCAN_LOCK_LEASE_MINUTES (lib/dailyScan.ts) — so a
+  // crashed process's stale lock naturally expires and never permanently
+  // blocks the campaign. Cleared (set back to null) the moment a scan
+  // attempt finishes, success or failure.
+  scanLockedAt DateTime?
 }
 
 model Keyword {

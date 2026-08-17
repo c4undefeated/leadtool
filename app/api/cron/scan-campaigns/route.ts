@@ -1,17 +1,15 @@
-import { prisma } from "@/lib/prisma";
-import { runScanForCampaign, mapWithConcurrency } from "@/lib/pipeline";
+import { runDailyScan } from "@/lib/dailyScan";
 
 // Runs on Vercel's Hobby-tier cron limit — once per day, at an imprecise
-// time within the scheduled hour (see vercel.json). This is what closes
-// the gap between "results only appear when someone clicks Run scan" and
-// leads actually accumulating over time. It does NOT increase how much a
-// single scan finds — same one-call-per-campaign, same budget/health
-// guards as a manual click — it just removes the "you have to remember to
-// click it" step. Real volume growth beyond that needs either a paid plan
-// (more frequent cron) or more campaigns/keywords.
+// time within the scheduled hour (see vercel.json), hard-capped at 60s
+// regardless of maxDuration. This is the sole trigger for IntentScout's
+// always-on scanning: users no longer click "Run scan" — an ACTIVE
+// campaign gets scanned automatically once a day the moment this fires.
+// See lib/dailyScan.ts for the actual orchestration (due-checking,
+// locking, bounded concurrency, per-campaign failure isolation) — this
+// route is intentionally thin, just auth + delegate + respond, so there
+// is exactly one place that decides "which campaigns get scanned today."
 export const maxDuration = 60;
-
-const CAMPAIGN_CONCURRENCY = 3;
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -20,48 +18,6 @@ export async function GET(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const campaigns = await prisma.campaign.findMany({
-    where: { status: "active", sourceType: { not: "manual" } },
-    select: { id: true, name: true },
-  });
-
-  const summary: {
-    campaignId: string;
-    name: string;
-    ingested: number;
-    skippedJunk: number;
-    skippedDuplicates: number;
-    cacheHit: boolean | null;
-    opportunities: number;
-    errors: string[];
-  }[] = [];
-
-  await mapWithConcurrency(campaigns, CAMPAIGN_CONCURRENCY, async (campaign) => {
-    try {
-      const result = await runScanForCampaign(campaign.id);
-      summary.push({
-        campaignId: campaign.id,
-        name: campaign.name,
-        ingested: result.conversationsIngested,
-        skippedJunk: result.skippedJunk,
-        skippedDuplicates: result.skippedDuplicates,
-        cacheHit: result.cacheHit,
-        opportunities: result.opportunitiesCreated,
-        errors: result.errors,
-      });
-    } catch (err) {
-      summary.push({
-        campaignId: campaign.id,
-        name: campaign.name,
-        ingested: 0,
-        skippedJunk: 0,
-        skippedDuplicates: 0,
-        cacheHit: null,
-        opportunities: 0,
-        errors: [err instanceof Error ? err.message : "Unknown error."],
-      });
-    }
-  });
-
-  return Response.json({ scanned: summary.length, results: summary });
+  const summary = await runDailyScan();
+  return Response.json(summary);
 }
