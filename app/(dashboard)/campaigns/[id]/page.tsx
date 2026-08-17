@@ -215,8 +215,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </>
           ) : (
             <p className="text-sm text-muted">
-              No discovery {poolNoun} generated yet — run a scan (or finish your offer profile in Settings →
-              Offer first) to have Scout build one.
+              No discovery {poolNoun} generated yet — finish your offer profile in Settings → Offer and Scout
+              will build one automatically before its next daily scan.
             </p>
           )}
 

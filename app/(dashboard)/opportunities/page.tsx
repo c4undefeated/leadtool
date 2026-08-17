@@ -9,6 +9,15 @@ export default async function OpportunitiesPage() {
   const [opportunities, campaignSources] = await Promise.all([
     prisma.opportunity.findMany({
       where: { conversation: { campaign: { companyId } } },
+      // Safety cap, not real pagination — this page's filter/sort UI
+      // (OpportunitiesExplorer) works client-side over whatever's fetched
+      // here, so a genuinely unbounded query would eventually both slow
+      // this page down and ship a huge payload to the browser as a
+      // company's lifetime opportunity count grows. 500 most-relevant
+      // (by the same ordering the page already uses) comfortably covers
+      // realistic near-term usage; real server-side pagination is a
+      // follow-up if a company's history grows past that.
+      take: 500,
       select: {
         id: true,
         matchScore: true,
@@ -54,8 +63,8 @@ export default async function OpportunitiesPage() {
         <div className="rounded-lg border border-dashed border-line bg-surface p-8 text-center">
           <p className="font-display text-xl mb-2">No strong opportunities found.</p>
           <p className="text-muted text-sm max-w-md mx-auto">
-            That's a valid, honest result — Scout doesn't invent leads to fill the feed. Run a scan or
-            import a conversation from a campaign to see something here.
+            That's a valid, honest result — Scout doesn't invent leads to fill the feed. Active campaigns
+            scan automatically once a day, or import a conversation from a campaign to see something here.
           </p>
         </div>
       ) : (
