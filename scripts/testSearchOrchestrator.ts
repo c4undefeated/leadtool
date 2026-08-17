@@ -251,6 +251,24 @@ function main() {
     `got: ${JSON.stringify(xNoMatch)}`,
   );
 
+  // --- attributeTermIds fallbackToAll:false (the precision-layer opt-out —
+  // see runDiscovery/runXDiscovery: a campaign's manual keyword list can be
+  // large, so "no literal match -> credit all of them" there would just
+  // recreate the vague "your keywords/topics" provenance this option was
+  // added to avoid; see the opportunity detail page's "Discovered through") ---
+  const strictNoMatch = attributeTermIds("something totally unrelated to either phrase", batchTerms, { fallbackToAll: false });
+  check(
+    "attributeTermIds: fallbackToAll:false returns nothing when no literal match, instead of crediting everything",
+    strictNoMatch.length === 0,
+    `got: ${JSON.stringify(strictNoMatch)}`,
+  );
+  const strictWithMatch = attributeTermIds("what's a good training split for a beginner", batchTerms, { fallbackToAll: false });
+  check(
+    "attributeTermIds: fallbackToAll:false still returns the real match when one literally exists",
+    strictWithMatch.length === 1 && strictWithMatch[0] === "t2",
+    `got: ${JSON.stringify(strictWithMatch)}`,
+  );
+
   // --- buildCommunityBonusJobs (multi-community precision-boost rotation) ---
   const NOW = Date.parse("2026-08-15T12:00:00Z");
   const ONE_DAY = 86_400_000;

@@ -192,11 +192,22 @@ export function rankTerms(terms: DiscoveryTerm[]): RankedTerm[] {
  * Source-agnostic by design (plain text in, ids out) so both runDiscovery
  * (Reddit) and runXDiscovery (X) share exactly one attribution rule instead
  * of each guessing independently.
+ *
+ * fallbackToAll (default true) is what discovery batches want — a batch is
+ * small and bounded (packTermBatches), so crediting the whole thing is
+ * still a compact, honest signal. The precision layer disables it
+ * (fallbackToAll: false, see runDiscovery/runXDiscovery) because a
+ * campaign's manual keyword/topic list can be large, and "no literal
+ * match, so credit ALL of them" there would just recreate the exact vague
+ * "your keywords/topics" provenance this option exists to avoid — see the
+ * opportunity detail page's "Discovered through" section.
  */
-export function attributeTermIds(text: string, batchTerms: TermRef[]): string[] {
+export function attributeTermIds(text: string, batchTerms: TermRef[], options?: { fallbackToAll?: boolean }): string[] {
+  const fallbackToAll = options?.fallbackToAll ?? true;
   const lower = text.toLowerCase();
   const matched = batchTerms.filter((t) => lower.includes(t.term.toLowerCase())).map((t) => t.id);
-  return matched.length > 0 ? matched : batchTerms.map((t) => t.id);
+  if (matched.length > 0) return matched;
+  return fallbackToAll ? batchTerms.map((t) => t.id) : [];
 }
 
 /** Reddit-specific convenience wrapper around attributeTermIds — kept for the existing call sites and tests. */
@@ -509,6 +520,21 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   await ensureDiscoveryTerms(params.campaignId);
 
   const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
+  // Precision-layer attribution refs — the campaign's own keyword/topic
+  // TEXT (not DiscoveryTerm rows), used only to identify which specific
+  // manual keyword literally caused a precision-query hit ("Discovered
+  // through" on the opportunity detail page — see conversation.foundByTerms
+  // and app/(dashboard)/opportunities/[id]/page.tsx). "kw:" prefixed so a
+  // display-time reader can tell a manual-keyword match apart from a real
+  // DiscoveryTerm/XDiscoveryPhrase cuid without a DB lookup. Kept entirely
+  // separate from the discovery-term rotation pool: the precision Job's own
+  // termIds stays [] below, so these ids never reach the rotation
+  // stats-write loop (they aren't DiscoveryTerm rows and updating one by
+  // this id would throw).
+  const precisionTermRefs: TermRef[] = Array.from(new Set([...params.keywords, ...params.topics].map((t) => t.trim()).filter(Boolean))).map((t) => ({
+    id: `kw:${t}`,
+    term: t,
+  }));
   const termRows = await prisma.discoveryTerm.findMany({ where: { campaignId: params.campaignId, active: true } });
   const ranked = rankTerms(termRows).slice(0, DISCOVERY_TERMS_PER_SCAN);
   const batches = packTermBatches(
@@ -582,12 +608,12 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
       // (below, precision job only) can call it again for page 2+ without
       // duplicating the merge/keptCount/cache-hit-lookup/runRow logic.
       const recordPage = async (response: Awaited<ReturnType<typeof redditapis.searchRedditapis>>) => {
-        const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
+        const batchTermRefs: TermRef[] = job.kind === "precision" ? precisionTermRefs : job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
         let keptCount = 0;
         for (const post of response.posts) {
           if (post.created_utc * 1000 >= cutoffMs) keptCount += 1;
           const id = post.name || post.id;
-          const labels = job.kind === "precision" ? ["precision"] : matchedTermIds(post, batchTermRefs);
+          const labels = attributeTermIds(`${post.title ?? ""} ${post.text ?? ""}`, batchTermRefs, { fallbackToAll: job.kind !== "precision" });
           if (job.kind === "discovery") {
             for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
           }
@@ -785,6 +811,12 @@ export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscover
   await ensureXPhrases(params.campaignId);
 
   const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
+  // Same precision-attribution refs as runDiscovery — see its comment for
+  // why these are "kw:"-prefixed and kept out of the rotation pool.
+  const precisionTermRefs: TermRef[] = Array.from(new Set([...params.keywords, ...params.topics].map((t) => t.trim()).filter(Boolean))).map((t) => ({
+    id: `kw:${t}`,
+    term: t,
+  }));
   const phraseRows = await prisma.xDiscoveryPhrase.findMany({ where: { campaignId: params.campaignId, active: true } });
   const ranked = rankCandidates(phraseRows, (p) => p.phrase).slice(0, X_PHRASES_PER_SCAN);
   const batches = packTermBatches(
@@ -838,13 +870,13 @@ export async function runXDiscovery(params: XDiscoveryParams): Promise<XDiscover
     }
     try {
       const recordPage = async (response: Awaited<ReturnType<typeof twitterapis.searchTweets>>) => {
-        const batchTermRefs: TermRef[] = job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
+        const batchTermRefs: TermRef[] = job.kind === "precision" ? precisionTermRefs : job.termIds.map((id, i) => ({ id, term: job.termTexts[i]! }));
         let keptCount = 0;
         for (const tweet of response.tweets) {
           const postedMs = Date.parse(tweet.created_at);
           if (!Number.isNaN(postedMs) && postedMs >= cutoffMs) keptCount += 1;
           const id = tweet.id;
-          const labels = job.kind === "precision" ? ["precision"] : attributeTermIds(tweet.text, batchTermRefs);
+          const labels = attributeTermIds(tweet.text, batchTermRefs, { fallbackToAll: job.kind !== "precision" });
           if (job.kind === "discovery") {
             for (const l of labels) termHitCounts.set(l, (termHitCounts.get(l) ?? 0) + 1);
           }

@@ -40,25 +40,52 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
     ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(redditUsername)}`
     : null;
 
-  // Provenance ("what found this lead?") — which discovery term(s)
-  // literally found this conversation, shown as the concept's own text
-  // (e.g. "hybrid workout plans"), not just an internal category label.
-  // Real data written at ingestion time (lib/pipeline.ts), not
-  // reconstructed after the fact. Falls back to the retired family-bundle
-  // system's provenance for conversations ingested before DiscoveryTerm
-  // shipped.
-  let discoveredThrough: { label: string; category?: string }[] = [];
+  // Provenance ("what specifically caused Scout to find this post?"), split
+  // into the two distinct discovery sources rather than one vague blended
+  // list: the campaign's own manually-entered keywords/topics, and Scout's
+  // AI-generated discovery profile (DiscoveryTerm for Reddit, XDiscoveryPhrase
+  // for X — see lib/ai/discovery.ts / lib/ai/xPhrases.ts). Real data written
+  // at ingestion time (lib/sources/searchOrchestrator.ts's runDiscovery/
+  // runXDiscovery), not reconstructed after the fact — this only ever
+  // displays what literally matched, never "every keyword this campaign has."
+  //
+  // conversation.foundByTerms is a JSON string[] mixing three id shapes:
+  //   - "precision" (legacy, pre-dates per-keyword attribution): no specific
+  //     keyword was recorded, only "the precision layer found this" — shown
+  //     as a generic fallback so old opportunities don't lose provenance
+  //     entirely, but new scans no longer produce this value.
+  //   - "kw:<literal text>": a specific manually-entered keyword/topic that
+  //     literally matched this post/tweet's text — the id IS the label, no
+  //     DB lookup needed (and none possible: keywords aren't a separate
+  //     row-per-match table).
+  //   - a real DiscoveryTerm or XDiscoveryPhrase cuid — looked up against
+  //     both tables (harmless to query both: cuids are independently
+  //     generated per table, so an id only ever matches rows in one of them,
+  //     the same safe pattern lib/sources/searchOrchestrator.ts's
+  //     creditOpportunityToTerms already uses).
+  const yourKeywords: { label: string }[] = [];
+  const aiDiscovery: { label: string; category?: string }[] = [];
   if (conversation.foundByTerms) {
     try {
       const ids: string[] = JSON.parse(conversation.foundByTerms);
-      const realIds = ids.filter((id) => id !== "precision");
-      const terms = realIds.length > 0 ? await prisma.discoveryTerm.findMany({ where: { id: { in: realIds } } }) : [];
-      discoveredThrough = [
-        ...(ids.includes("precision") ? [{ label: DISCOVERY_CATEGORY_LABELS.precision! }] : []),
-        ...terms.map((t) => ({ label: t.term, category: DISCOVERY_CATEGORY_LABELS[t.category] ?? t.category })),
-      ];
+      if (ids.includes("precision")) yourKeywords.push({ label: DISCOVERY_CATEGORY_LABELS.precision! });
+      for (const id of ids) {
+        if (id.startsWith("kw:")) yourKeywords.push({ label: id.slice(3) });
+      }
+      const conceptIds = ids.filter((id) => id !== "precision" && !id.startsWith("kw:"));
+      if (conceptIds.length > 0) {
+        const [discoveryTerms, xPhrases] = await Promise.all([
+          prisma.discoveryTerm.findMany({ where: { id: { in: conceptIds } } }),
+          prisma.xDiscoveryPhrase.findMany({ where: { id: { in: conceptIds } } }),
+        ]);
+        aiDiscovery.push(
+          ...discoveryTerms.map((t) => ({ label: t.term, category: DISCOVERY_CATEGORY_LABELS[t.category] ?? t.category })),
+          ...xPhrases.map((p) => ({ label: p.phrase, category: DISCOVERY_CATEGORY_LABELS[p.category] ?? p.category })),
+        );
+      }
     } catch {
-      discoveredThrough = [];
+      // leave both arrays empty — an honest "no provenance available" over
+      // a guess
     }
   } else if (conversation.foundBySurfaces) {
     try {
@@ -66,11 +93,24 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
       const realIds = ids.filter((id) => id !== "baseline");
       const surfaces = realIds.length > 0 ? await prisma.searchSurface.findMany({ where: { id: { in: realIds } } }) : [];
       const families = new Set(ids.map((id) => (id === "baseline" ? "baseline" : (surfaces.find((s) => s.id === id)?.family ?? null))).filter((f): f is string => Boolean(f)));
-      discoveredThrough = Array.from(families).map((f) => ({ label: LEGACY_SEARCH_FAMILY_LABELS[f] ?? f }));
+      aiDiscovery.push(...Array.from(families).map((f) => ({ label: LEGACY_SEARCH_FAMILY_LABELS[f] ?? f })));
     } catch {
-      discoveredThrough = [];
+      // leave empty
     }
   }
+
+  // Dedup by label (a keyword/concept can independently appear in more than
+  // one batch) and cap what's shown — this answers "what caused this,"
+  // not "list everything this campaign contains."
+  const MAX_SHOWN_PER_GROUP = 5;
+  function dedupAndCap<T extends { label: string }>(items: T[]): { shown: T[]; more: number } {
+    const seen = new Set<string>();
+    const unique = items.filter((i) => (seen.has(i.label) ? false : (seen.add(i.label), true)));
+    return { shown: unique.slice(0, MAX_SHOWN_PER_GROUP), more: Math.max(0, unique.length - MAX_SHOWN_PER_GROUP) };
+  }
+  const yourKeywordsShown = dedupAndCap(yourKeywords);
+  const aiDiscoveryShown = dedupAndCap(aiDiscovery);
+  const hasProvenance = yourKeywordsShown.shown.length > 0 || aiDiscoveryShown.shown.length > 0;
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -127,14 +167,31 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
           <span className="font-medium text-caution">Safety: </span>
           {opportunity.safetyReason}
         </p>
-        {discoveredThrough.length > 0 && (
-          <div className="text-xs text-muted border-t border-line pt-3 mt-3 flex flex-wrap items-center gap-2">
-            <span className="font-medium text-ink">Discovered through:</span>
-            {discoveredThrough.map((d, i) => (
-              <span key={`${d.label}-${i}`} className="pill pill-neutral" title={d.category}>
-                {d.label}
-              </span>
-            ))}
+        {hasProvenance && (
+          <div className="text-xs text-muted border-t border-line pt-3 mt-3 flex flex-col gap-2">
+            <span className="font-medium text-ink">Discovered through</span>
+            {yourKeywordsShown.shown.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted shrink-0">Your keywords:</span>
+                {yourKeywordsShown.shown.map((d, i) => (
+                  <span key={`kw-${d.label}-${i}`} className="pill pill-neutral">
+                    {d.label}
+                  </span>
+                ))}
+                {yourKeywordsShown.more > 0 && <span className="text-muted">+{yourKeywordsShown.more} more</span>}
+              </div>
+            )}
+            {aiDiscoveryShown.shown.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted shrink-0">AI discovery:</span>
+                {aiDiscoveryShown.shown.map((d, i) => (
+                  <span key={`ai-${d.label}-${i}`} className="pill pill-neutral" title={d.category}>
+                    {d.label}
+                  </span>
+                ))}
+                {aiDiscoveryShown.more > 0 && <span className="text-muted">+{aiDiscoveryShown.more} more</span>}
+              </div>
+            )}
           </div>
         )}
       </section>
