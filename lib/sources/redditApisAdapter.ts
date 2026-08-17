@@ -67,7 +67,13 @@ export class RedditApisSourceAdapter implements SourceAdapter {
     // real created_utc below. That's the only place true 12h/24h/48h
     // precision exists — Redditapis doesn't offer it, so we don't pretend
     // to pass it through.
-    const maxAgeHours = params.maxAgeHours ?? 24;
+    // 48 mirrors lib/pipeline.ts's LEAD_RECENCY_HOURS (the one fixed recency
+    // window every real campaign scan now uses) — duplicated as a literal
+    // rather than imported to avoid a circular import (pipeline.ts already
+    // imports from lib/sources). This fallback only matters for a direct
+    // adapter.search() call that omits maxAgeHours; runScanForCampaign
+    // always passes it explicitly.
+    const maxAgeHours = params.maxAgeHours ?? 48;
     const t = maxAgeHours <= 24 ? "day" : maxAgeHours <= 168 ? "week" : maxAgeHours <= 720 ? "month" : "all";
 
     const discovery = await runDiscovery({

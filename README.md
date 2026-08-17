@@ -58,15 +58,18 @@ provider's API surface otherwise exposes:
   as always (see "Mark Contacted" below).
 - No customer-facing Reddit OAuth exists or is planned.
 
-**Lead recency.** Each campaign has a `maxLeadAgeHours` setting (12 / 24 /
-48 / 168 (1 week) / 720 (1 month), defaults to 24 — selector on the
-campaign page, next to "Run scan").
+**Lead recency.** Fixed at 48 hours for every campaign (`lib/pipeline.ts`'s
+`LEAD_RECENCY_HOURS`) — no per-campaign setting, no user-facing selector.
+Was previously a per-campaign `maxLeadAgeHours` field (12/24/48/168/720,
+user-selectable); removed once the product moved to always-on daily
+scanning, since a single fixed window is what "scans automatically every
+day" actually needs.
 Redditapis's own time-window param (`t`) is coarse (hour/day/week/month/
 year/all) and, per its docs, mainly affects top/controversial sort — not
-something precise enough to trust for a 12h/24h/48h cutoff. So the adapter
+something precise enough to trust for a 48h cutoff. So the adapter
 requests a superset window from the provider, then enforces the real cutoff
-itself against each post's actual `created_utc` before anything gets
-ingested or analyzed (`lib/sources/redditApisAdapter.ts`).
+itself against each post's actual `created_utc` (never ingestion or scan
+time) before anything gets ingested or analyzed (`lib/sources/redditApisAdapter.ts`).
 
 **Search query strategy.** Every configured keyword phrase is quoted and
 OR'd together (`lib/sources/redditApisAdapter.ts`'s `buildQuery`) — verified

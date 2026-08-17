@@ -66,7 +66,6 @@ model Campaign {
   status            String             @default("active") // active | paused
   sourceType        String // "reddit" | "manual"
   exclusions        String?
-  maxLeadAgeHours   Int                @default(24) // 12 | 24 | 48 | 168 | 720 — how recent a live-scanned post must be to surface at all
   keywords          Keyword[]
   conversations     Conversation[]
   searchSurfaces    SearchSurface[]

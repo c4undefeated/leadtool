@@ -56,7 +56,10 @@ export class TwitterApisSourceAdapter implements SourceAdapter {
     // lang:). So campaign "communities" simply don't apply here; nothing
     // is silently dropped, there's just no real analog to map them to.
     // params.communities is deliberately not read below.
-    const maxAgeHours = params.maxAgeHours ?? 24;
+    // 48 mirrors lib/pipeline.ts's LEAD_RECENCY_HOURS — see the identical
+    // comment in redditApisAdapter.ts for why this is a literal, not an
+    // import.
+    const maxAgeHours = params.maxAgeHours ?? 48;
 
     const discovery = await runXDiscovery({
       campaignId: params.campaignId ?? "",
