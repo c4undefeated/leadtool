@@ -62,8 +62,18 @@ export async function getDashboardStats(companyId: string): Promise<DashboardSta
   const since30 = new Date(Date.now() - 30 * 86_400_000);
 
   const [opportunities, repliedActivity] = await Promise.all([
+    // Bounded to the last 30 days — the widest window any series below
+    // actually buckets into (14 days for the trend cards, 30 for the
+    // activity chart). An opportunity analyzed/contacted before that never
+    // lands in a bucket either way, so this changes nothing about the
+    // numbers, only how much history has to be fetched to compute them —
+    // otherwise this grows unboundedly with a company's full lifetime
+    // opportunity count.
     prisma.opportunity.findMany({
-      where: { conversation: { campaign: { companyId } } },
+      where: {
+        conversation: { campaign: { companyId } },
+        OR: [{ analyzedAt: { gte: since30 } }, { contactedAt: { gte: since30 } }],
+      },
       select: { analyzedAt: true, contactedAt: true },
     }),
     prisma.activity.findMany({
