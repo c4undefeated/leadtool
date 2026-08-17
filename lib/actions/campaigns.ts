@@ -96,19 +96,6 @@ export async function switchSourceToTwitterAction(formData: FormData): Promise<v
   revalidatePath(`/campaigns/${campaignId}`);
 }
 
-const VALID_MAX_LEAD_AGE_HOURS = [12, 24, 48, 168, 720] as const;
-
-/** How recent a live-scanned post must be to surface at all — see lib/sources/redditApisAdapter.ts for enforcement. */
-export async function updateMaxLeadAgeAction(formData: FormData): Promise<void> {
-  const campaignId = String(formData.get("campaignId") || "");
-  const hours = Number(formData.get("maxLeadAgeHours"));
-  if (!VALID_MAX_LEAD_AGE_HOURS.includes(hours as (typeof VALID_MAX_LEAD_AGE_HOURS)[number])) return;
-
-  const { campaign } = await ownedCampaignOrThrow(campaignId);
-  await prisma.campaign.update({ where: { id: campaign.id }, data: { maxLeadAgeHours: hours } });
-  revalidatePath(`/campaigns/${campaignId}`);
-}
-
 export async function updateExclusionsAction(formData: FormData): Promise<void> {
   const campaignId = String(formData.get("campaignId") || "");
   const exclusions = String(formData.get("exclusions") || "").trim();

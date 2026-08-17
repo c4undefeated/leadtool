@@ -14,7 +14,6 @@ import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTim
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
-import { LeadRecencySelector } from "@/components/LeadRecencySelector";
 
 // A live scan can run several Gemini analysis calls (bounded-concurrency,
 // see lib/pipeline.ts) — the platform default execution limit is too short
@@ -137,28 +136,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </p>
         ) : (
           <p className="text-sm text-muted mb-3">
-            Scout scans this campaign automatically, once a day, while it's Active — nothing to click. New
-            opportunities just show up here and in your feed.
+            Scout automatically scans this campaign once a day. New qualifying conversations from the last 48
+            hours are automatically surfaced here and in your feed — nothing to click, no recency setting to
+            manage.
             {disabledReason ? ` ${disabledReason}` : ""}
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-4 mb-3">
-          {ENABLE_MANUAL_SCAN_UI && (
+        {ENABLE_MANUAL_SCAN_UI && (
+          <div className="flex flex-wrap items-center gap-4">
             <RunScanButton
               campaignId={campaign.id}
               disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady}
               disabledReason={disabledReason}
             />
-          )}
-          {campaign.sourceType !== "manual" && (
-            <LeadRecencySelector campaignId={campaign.id} value={campaign.maxLeadAgeHours} />
-          )}
-        </div>
-        {campaign.sourceType !== "manual" && (
-          <p className="text-xs text-muted">
-            Posts older than this are never surfaced, even if they'd otherwise match — recency is enforced
-            against each post's real timestamp.
-          </p>
+          </div>
         )}
       </section>
 

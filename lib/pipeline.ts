@@ -10,6 +10,19 @@ import { Prisma, type Offer } from "@prisma/client";
 
 export { mapWithConcurrency };
 
+/**
+ * The single, fixed recency window every campaign scans against — no
+ * per-campaign setting, no user-facing selector. Enforced against each
+ * post/tweet's own ORIGINAL source timestamp (created_utc / created_at),
+ * never ingestion or scan time — see redditApisAdapter.ts/
+ * twitterApisAdapter.ts, which apply this cutoff to the real timestamp on
+ * every item after discovery, before anything is ingested or analyzed.
+ * Was previously Campaign.maxLeadAgeHours (12/24/48/168/720, user-
+ * selectable); now a single constant since the daily-scan product no
+ * longer exposes a recency choice.
+ */
+export const LEAD_RECENCY_HOURS = 48;
+
 export type IngestResult = {
   conversationsIngested: number;
   opportunitiesCreated: number;
@@ -291,7 +304,7 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
       topics,
       communities,
       limit: 100,
-      maxAgeHours: campaign.maxLeadAgeHours,
+      maxAgeHours: LEAD_RECENCY_HOURS,
       campaignId: campaign.id,
       companyId: campaign.companyId,
       geography: offer.geography,
