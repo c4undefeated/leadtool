@@ -20,6 +20,7 @@
     "test:x-phrase-generation": "tsx scripts/testXPhraseGeneration.ts",
     "test:daily-scan": "tsx scripts/testDailyScan.ts",
     "test:billing": "tsx scripts/testBilling.ts",
+    "test:admin": "tsx scripts/testAdmin.ts",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

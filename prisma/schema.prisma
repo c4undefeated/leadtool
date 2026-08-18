@@ -28,6 +28,14 @@ model User {
   companyId    String?
   company      Company? @relation(fields: [companyId], references: [id])
   createdAt    DateTime @default(now())
+
+  // "user" | "admin" — the sole authorization source for the internal
+  // Admin Panel (app/admin/*, lib/auth.ts's requireAdmin). A plain string
+  // rather than a Prisma enum to match this schema's existing convention
+  // for status-like fields (Campaign.status, Opportunity.status, etc).
+  // Never checked by comparing email addresses anywhere in application
+  // code — this column is the one and only authorization mechanism.
+  role String @default("user")
 }
 
 model Company {
