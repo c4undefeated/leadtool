@@ -51,11 +51,11 @@ export function HomePage() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-line">
-        <div className="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-5xl px-4 py-4 flex flex-wrap items-center justify-between gap-3">
           <span className="font-display text-xl">
             Intent<span className="text-accent">Scout</span>
           </span>
-          <nav className="flex items-center gap-5 text-sm font-mono">
+          <nav className="flex flex-wrap items-center gap-3 sm:gap-5 text-sm font-mono">
             <Link href="/pricing" className="text-muted hover:text-ink">
               Pricing
             </Link>
@@ -64,9 +64,10 @@ export function HomePage() {
             </Link>
             <Link
               href="/signup"
-              className="rounded-md bg-accent text-paper hover:bg-accent-hover px-4 py-2 tracking-wide"
+              className="rounded-md bg-accent text-paper hover:bg-accent-hover px-4 py-2 tracking-wide whitespace-nowrap"
             >
-              Start Finding Opportunities
+              <span className="sm:hidden">Get Started</span>
+              <span className="hidden sm:inline">Start Finding Opportunities</span>
             </Link>
           </nav>
         </div>

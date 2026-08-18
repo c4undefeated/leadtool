@@ -198,7 +198,7 @@ function DraftBox({
         <button
           type="button"
           onClick={() => setShowWhy((s) => !s)}
-          className="text-xs font-mono text-accent underline"
+          className="text-xs font-mono text-accent underline p-2 -m-2"
         >
           Why this response?
         </button>

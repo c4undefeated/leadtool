@@ -8,12 +8,12 @@ export default async function PricingPage() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <header className="border-b border-line px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+      <header className="border-b border-line px-4 sm:px-6 py-4">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <Link href="/" className="font-display text-xl">
             Intent<span className="text-accent">Scout</span>
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
+          <nav className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm">
             {user ? (
               <Link href="/dashboard" className="text-ink hover:text-accent transition">
                 Dashboard

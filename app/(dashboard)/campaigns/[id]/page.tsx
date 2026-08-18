@@ -90,9 +90,9 @@ export default async function CampaignDetailPage({
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
       {notice && <UpgradePrompt message={notice} upgradeTo={upgradeTo && isPlanId(upgradeTo) ? upgradeTo : null} />}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl">{campaign.name}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl break-words">{campaign.name}</h1>
           <p className="text-xs font-mono text-muted mt-1">
             {vertical ? `${vertical.label} · ` : ""}source: {sourceLabel(campaign.sourceType)} · {campaign._count.conversations}{" "}
             conversation{campaign._count.conversations === 1 ? "" : "s"} · {opportunityCount} opportunit
@@ -132,8 +132,8 @@ export default async function CampaignDetailPage({
         </div>
         <form action={toggleCampaignStatusAction}>
           <input type="hidden" name="campaignId" value={campaign.id} />
-          <button type="submit" className={`pill ${campaign.status === "active" ? "pill-good" : "pill-neutral"}`}>
-            {campaign.status}
+          <button type="submit" className="p-2 -m-2" aria-label={`Campaign is ${campaign.status} — tap to ${campaign.status === "active" ? "pause" : "activate"}`}>
+            <span className={`pill ${campaign.status === "active" ? "pill-good" : "pill-neutral"}`}>{campaign.status}</span>
           </button>
         </form>
       </div>
@@ -169,7 +169,7 @@ export default async function CampaignDetailPage({
             <h2 className="font-medium text-sm">Scout's discovery profile</h2>
             <form action={regenerateDiscoveryTermsAction}>
               <input type="hidden" name="campaignId" value={campaign.id} />
-              <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline">
+              <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline p-2 -m-2">
                 Regenerate
               </button>
             </form>
@@ -199,9 +199,9 @@ export default async function CampaignDetailPage({
                   <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Top performers</p>
                   <div className="flex flex-col gap-1 mb-4">
                     {topPerformers.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between text-sm">
-                        <span>{t.term}</span>
-                        <span className="text-xs font-mono text-muted">
+                      <div key={t.id} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="truncate">{t.term}</span>
+                        <span className="text-xs font-mono text-muted shrink-0 whitespace-nowrap">
                           {t.opportunitiesFound} opportunit{t.opportunitiesFound === 1 ? "y" : "ies"} / {t.candidatesFound} found
                         </span>
                       </div>
@@ -349,7 +349,7 @@ function KeywordRow({ keyword, campaignId }: { keyword: { id: string; term: stri
       <form action={removeKeywordAction}>
         <input type="hidden" name="keywordId" value={keyword.id} />
         <input type="hidden" name="campaignId" value={campaignId} />
-        <button type="submit" className="text-muted hover:text-risk text-xs font-mono">
+        <button type="submit" className="text-muted hover:text-risk text-xs font-mono p-2 -m-2">
           remove
         </button>
       </form>

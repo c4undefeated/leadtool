@@ -33,7 +33,7 @@ export function ImportConversationForm({ campaignId }: { campaignId: string }) {
           placeholder="Paste the post or comment text exactly as written."
         />
       </label>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="text-sm text-muted">
           Link to original
           <input

@@ -83,7 +83,7 @@ export function OpportunityCard({ opportunity }: { opportunity: CardOpportunity 
         <form action={updateOpportunityStatusAction} className="ml-auto">
           <input type="hidden" name="opportunityId" value={opportunity.id} />
           <input type="hidden" name="status" value="dismissed" />
-          <button type="submit" className="text-xs font-mono text-muted hover:text-risk">
+          <button type="submit" className="text-xs font-mono text-muted hover:text-risk p-2 -m-2">
             Dismiss
           </button>
         </form>
