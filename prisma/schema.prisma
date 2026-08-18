@@ -37,6 +37,32 @@ model Company {
   offer     Offer?
   campaigns Campaign[]
   createdAt DateTime   @default(now())
+
+  // --- Billing (see lib/billing/entitlements.ts) ---
+  // Every field below is written ONLY by the Stripe webhook handler
+  // (app/api/webhooks/stripe/route.ts) from verified Stripe events — never
+  // optimistically set by a client redirect or a server action, so this is
+  // always what Stripe itself last confirmed, not what a checkout attempt
+  // merely started.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String? // durable identifier for plan resolution — see lib/billing/plans.ts's planIdFromStripePriceId
+  plan                 String? // "starter" | "growth" | "pro" — resolved FROM stripePriceId, never independently settable
+  subscriptionStatus   String? // Stripe Subscription.status verbatim: trialing | active | past_due | unpaid | canceled | incomplete | incomplete_expired
+  trialEndsAt          DateTime? // set once at first-ever trial start and never cleared — doubles as "has this company ever trialed" so a second trial can't be started by canceling and re-subscribing
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+}
+
+/// Idempotency ledger for inbound Stripe webhook deliveries — id is the
+/// Stripe event id itself (globally unique, assigned by Stripe), so a
+/// redelivered or dashboard-replayed event is a duplicate-primary-key no-op
+/// rather than double-applying a plan/subscription change. See
+/// app/api/webhooks/stripe/route.ts.
+model StripeWebhookEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
 }
 
 /// Offer + ICP definition captured during onboarding (spec section 3).

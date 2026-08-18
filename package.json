@@ -19,6 +19,7 @@
     "test:search-orchestrator": "tsx scripts/testSearchOrchestrator.ts",
     "test:x-phrase-generation": "tsx scripts/testXPhraseGeneration.ts",
     "test:daily-scan": "tsx scripts/testDailyScan.ts",
+    "test:billing": "tsx scripts/testBilling.ts",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "next": "^16.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "stripe": "^22.5.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

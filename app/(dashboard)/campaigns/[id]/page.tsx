@@ -14,6 +14,8 @@ import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTim
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ImportConversationForm } from "@/components/ImportConversationForm";
+import { UpgradePrompt } from "@/components/UpgradePrompt";
+import { isPlanId } from "@/lib/billing/plans";
 
 // A live scan can run several Gemini analysis calls (bounded-concurrency,
 // see lib/pipeline.ts) — the platform default execution limit is too short
@@ -21,8 +23,15 @@ import { ImportConversationForm } from "@/components/ImportConversationForm";
 // the concurrency fix, not a substitute for it.
 export const maxDuration = 60;
 
-export default async function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CampaignDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ notice?: string; upgradeTo?: string }>;
+}) {
   const { id } = await params;
+  const { notice, upgradeTo } = await searchParams;
   const user = await requireUser();
   const campaign = await prisma.campaign.findFirst({
     where: { id, companyId: user.companyId ?? "__none__" },
@@ -80,6 +89,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
+      {notice && <UpgradePrompt message={notice} upgradeTo={upgradeTo && isPlanId(upgradeTo) ? upgradeTo : null} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl">{campaign.name}</h1>
