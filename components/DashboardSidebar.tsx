@@ -33,7 +33,7 @@ export function DashboardSidebar({
     <>
       {/* Mobile top bar — hamburger + wordmark, sidebar itself becomes a slide-in overlay */}
       <div className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/95 backdrop-blur px-4 py-3">
-        <button type="button" onClick={() => setOpen(true)} aria-label="Open navigation" className="text-ink">
+        <button type="button" onClick={() => setOpen(true)} aria-label="Open navigation" className="text-ink p-2 -m-2">
           <MenuIcon />
         </button>
         <Link href="/dashboard" className="font-display text-lg">

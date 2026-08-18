@@ -138,11 +138,11 @@ export default async function BillingSettingsPage({
             </div>
           )}
 
-          <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
+          <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 text-sm">
             <dt className="text-muted">Renewal date</dt>
-            <dd className="text-ink text-right">{entitlements.isTrialing ? formatDate(entitlements.trialEndsAt) : formatDate(entitlements.currentPeriodEnd)}</dd>
-            <dt className="text-muted">Payment method</dt>
-            <dd className="text-ink text-right">{paymentMethodSummary ?? "—"}</dd>
+            <dd className="text-ink sm:text-right">{entitlements.isTrialing ? formatDate(entitlements.trialEndsAt) : formatDate(entitlements.currentPeriodEnd)}</dd>
+            <dt className="text-muted mt-1 sm:mt-0">Payment method</dt>
+            <dd className="text-ink sm:text-right">{paymentMethodSummary ?? "—"}</dd>
           </dl>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -186,16 +186,16 @@ export default async function BillingSettingsPage({
           <h2 className="font-display text-lg mb-3">Billing history</h2>
           <div className="rounded-lg border border-line bg-surface overflow-hidden">
             {invoices.map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between px-4 py-3 border-b border-line last:border-b-0 text-sm">
+              <div key={inv.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3 border-b border-line last:border-b-0 text-sm">
                 <span className="text-ink">{formatDate(inv.date)}</span>
                 <span className="text-muted font-mono">{formatCents(inv.amount)}</span>
                 <span className="text-muted capitalize">{inv.status}</span>
                 {inv.url ? (
-                  <a href={inv.url} target="_blank" rel="noreferrer" className="text-accent font-medium">
+                  <a href={inv.url} target="_blank" rel="noreferrer" className="text-accent font-medium ml-auto sm:ml-0">
                     Receipt →
                   </a>
                 ) : (
-                  <span className="text-muted">—</span>
+                  <span className="text-muted ml-auto sm:ml-0">—</span>
                 )}
               </div>
             ))}
