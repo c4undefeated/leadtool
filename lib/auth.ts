@@ -83,3 +83,30 @@ export class AuthRequiredError extends Error {
     this.name = "AuthRequiredError";
   }
 }
+
+/**
+ * The one authorization check for the internal Admin Panel
+ * (app/admin/*). Deliberately re-verifies role from the database on every
+ * call (via requireUser -> getCurrentUser -> prisma.user.findUnique)
+ * rather than trusting anything cached client-side — every admin page,
+ * server action, and API route must call this itself; app/admin/layout.tsx
+ * calling it does NOT make it safe to skip elsewhere, since a layout only
+ * guards page navigation, not direct server-action/API invocation.
+ *
+ * Authorization is solely User.role === "admin", a persistent DB column —
+ * never an email comparison. See prisma/schema.prisma's User.role comment.
+ */
+export async function requireAdmin() {
+  const user = await requireUser();
+  if (user.role !== "admin") {
+    throw new AdminRequiredError();
+  }
+  return user;
+}
+
+export class AdminRequiredError extends Error {
+  constructor() {
+    super("Admin access required");
+    this.name = "AdminRequiredError";
+  }
+}

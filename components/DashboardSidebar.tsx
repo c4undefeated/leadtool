@@ -17,14 +17,36 @@ const SETTINGS_NAV_ITEMS = [
   { href: "/settings/billing", label: "Billing & Usage", icon: BillingIcon },
 ];
 
+// Rendered ONLY when isAdmin is true (see below) — this is a display
+// convenience, not the authorization boundary. Every /admin/* page and
+// every admin data query independently re-verifies User.role === "admin"
+// server-side (lib/auth.ts's requireAdmin); a customer who guesses one of
+// these hrefs directly gets a 404, not this nav item hidden from them.
+const ADMIN_NAV_ITEMS = [
+  // exact: true — otherwise this item's own prefix-match logic (needed so
+  // e.g. "Customers" stays highlighted on a customer detail page) would
+  // ALSO keep "Admin Overview" lit up on every other /admin/* page, since
+  // they all start with "/admin".
+  { href: "/admin", label: "Admin Overview", icon: ShieldIcon, exact: true },
+  { href: "/admin/customers", label: "Customers", icon: UsersIcon },
+  { href: "/admin/subscriptions", label: "Subscriptions", icon: BillingIcon },
+  { href: "/admin/usage", label: "Usage & Costs", icon: GaugeIcon },
+  { href: "/admin/health", label: "System Health", icon: PulseIcon },
+  { href: "/admin/cron", label: "Scan / Cron Monitor", icon: ClockIcon },
+  { href: "/admin/metrics", label: "Engine Metrics", icon: ChartIcon },
+  { href: "/admin/activity", label: "Activity / Logs", icon: ListIcon },
+];
+
 export function DashboardSidebar({
   companyName,
   userName,
   userEmail,
+  isAdmin = false,
 }: {
   companyName: string;
   userName: string | null;
   userEmail: string;
+  isAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -73,6 +95,17 @@ export function DashboardSidebar({
               ))}
             </div>
           </div>
+
+          {isAdmin && (
+            <div>
+              <p className="px-3 pb-1 text-[11px] uppercase tracking-widest text-accent font-mono">Admin</p>
+              <div className="flex flex-col gap-1">
+                {ADMIN_NAV_ITEMS.map((item) => (
+                  <NavLink key={item.href} item={item} pathname={pathname} onNavigate={() => setOpen(false)} />
+                ))}
+              </div>
+            </div>
+          )}
         </nav>
 
         <div className="px-3 py-4 border-t border-line">
@@ -100,11 +133,11 @@ function NavLink({
   pathname,
   onNavigate,
 }: {
-  item: { href: string; label: string; icon: (props: IconProps) => React.ReactElement };
+  item: { href: string; label: string; icon: (props: IconProps) => React.ReactElement; exact?: boolean };
   pathname: string;
   onNavigate: () => void;
 }) {
-  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+  const active = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(item.href + "/");
   return (
     <Link
       href={item.href}
@@ -198,6 +231,77 @@ function LogOutIcon({ className }: IconProps) {
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <polyline points="16 17 21 12 16 7" />
       <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  );
+}
+
+function ShieldIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6l7-3Z" />
+      <path d="M9.5 12.5l1.8 1.8 3.2-3.6" />
+    </svg>
+  );
+}
+
+function UsersIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" />
+      <path d="M16 8.2a3 3 0 1 1 3.5 4.6" />
+      <path d="M21.5 20c0-2.6-1.6-4.6-4-5.5" />
+    </svg>
+  );
+}
+
+function GaugeIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M4 15a8 8 0 1 1 16 0" />
+      <path d="M12 15l3.5-4.5" />
+      <circle cx="12" cy="15" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PulseIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M2 12h4l2.5-7 4 14 2.5-9 2 2H22" />
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
+function ChartIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M4 20V10" />
+      <path d="M12 20V4" />
+      <path d="M20 20v-7" />
+      <line x1="2" y1="20" x2="22" y2="20" />
+    </svg>
+  );
+}
+
+function ListIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
     </svg>
   );
 }
