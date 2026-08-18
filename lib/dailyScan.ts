@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import { runScanForCampaign, type IngestResult } from "@/lib/pipeline";
+import { isCompanyEligibleForScanning } from "@/lib/billing/entitlements";
 
 /**
  * The always-on daily scan orchestrator (spec: "IntentScout should behave
@@ -178,7 +179,7 @@ export async function runDailyScan(): Promise<DailyScanSummary> {
   // the automated scan (unchanged from the prior cron route's own filter).
   const candidates = await prisma.campaign.findMany({
     where: { status: "active", sourceType: { not: "manual" } },
-    select: { id: true, name: true, sourceType: true, lastScanAt: true },
+    select: { id: true, name: true, sourceType: true, lastScanAt: true, companyId: true },
   });
   console.log(`[DailyScan] active campaigns found: ${candidates.length}`);
 
@@ -186,11 +187,39 @@ export async function runDailyScan(): Promise<DailyScanSummary> {
   const dueCutoff = new Date(now.getTime() - SCAN_DUE_THRESHOLD_HOURS * 60 * 60 * 1000);
   const leaseCutoff = new Date(now.getTime() - SCAN_LOCK_LEASE_MINUTES * 60 * 1000);
 
-  const due = candidates.filter((c) => isCampaignDue(c.lastScanAt, now, SCAN_DUE_THRESHOLD_HOURS));
+  const dueByTiming = candidates.filter((c) => isCampaignDue(c.lastScanAt, now, SCAN_DUE_THRESHOLD_HOURS));
   const notDue = candidates.filter((c) => !isCampaignDue(c.lastScanAt, now, SCAN_DUE_THRESHOLD_HOURS));
-  console.log(`[DailyScan] campaigns due: ${due.length}`);
+  console.log(`[DailyScan] campaigns due by timing: ${dueByTiming.length}`);
 
+  // Billing gate: a company with no entitled subscription (never
+  // subscribed, canceled, unpaid) or that has already exhausted its plan's
+  // monthly/trial AI-analysis allowance is skipped entirely this run — the
+  // campaign stays "due" and is simply picked up again once the company is
+  // entitled again, exactly like a time-budget skip. This deliberately sits
+  // here, before claimCampaignForScan, rather than inside
+  // runScanForCampaign — see that function's own doc comment on why plan
+  // gating must never touch the core scan/claim logic. Cached per company
+  // so a company with several campaigns is checked once, not once per
+  // campaign.
+  const eligibilityCache = new Map<string, boolean>();
+  async function companyEligible(companyId: string): Promise<boolean> {
+    const cached = eligibilityCache.get(companyId);
+    if (cached !== undefined) return cached;
+    const eligible = await isCompanyEligibleForScanning(companyId);
+    eligibilityCache.set(companyId, eligible);
+    return eligible;
+  }
+
+  const due: typeof dueByTiming = [];
   const results: DailyScanCampaignResult[] = notDue.map((c) => ({ campaignId: c.id, name: c.name, status: "skipped", reason: "not_due" }));
+  for (const c of dueByTiming) {
+    if (await companyEligible(c.companyId)) {
+      due.push(c);
+    } else {
+      results.push({ campaignId: c.id, name: c.name, status: "skipped", reason: "plan_limit_reached" });
+    }
+  }
+  console.log(`[DailyScan] campaigns due after billing gate: ${due.length}`);
 
   let conversationsIngested = 0;
   let opportunitiesCreated = 0;
@@ -247,7 +276,7 @@ export async function runDailyScan(): Promise<DailyScanSummary> {
     campaignsFound: candidates.length,
     campaignsDue: due.length,
     campaignsScanned: scanned,
-    campaignsSkipped: notDue.length + skippedOther,
+    campaignsSkipped: notDue.length + (dueByTiming.length - due.length) + skippedOther,
     campaignsFailed: failed,
     conversationsIngested,
     opportunitiesCreated,

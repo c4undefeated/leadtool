@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { generateEngagementRecommendation } from "@/lib/ai/engagement";
 import type { NormalizedConversation } from "@/lib/sources/types";
+import { checkEngagementGenerationAllowed } from "@/lib/billing/entitlements";
 
 export type GenerateEngagementState = { error?: string } | undefined;
 
@@ -15,6 +16,9 @@ export async function generateEngagementAction(opportunityId: string): Promise<G
     include: { conversation: true },
   });
   if (!opportunity) return { error: "Opportunity not found." };
+
+  const entitlement = await checkEngagementGenerationAllowed(user.companyId ?? "__none__");
+  if (!entitlement.allowed) return { error: entitlement.reason };
 
   const offer = await prisma.offer.findUnique({ where: { companyId: user.companyId! } });
   if (!offer) return { error: "No offer profile found." };

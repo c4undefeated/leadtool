@@ -56,6 +56,9 @@ export function HomePage() {
             Intent<span className="text-accent">Scout</span>
           </span>
           <nav className="flex items-center gap-5 text-sm font-mono">
+            <Link href="/pricing" className="text-muted hover:text-ink">
+              Pricing
+            </Link>
             <Link href="/login" className="text-muted hover:text-ink">
               Log In
             </Link>

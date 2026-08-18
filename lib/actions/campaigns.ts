@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { defaultSourceType, isRedditConfigured, isTwitterConfigured } from "@/lib/sourceAvailability";
+import { checkCampaignCreationAllowed } from "@/lib/billing/entitlements";
 
 async function ownedCampaignOrThrow(campaignId: string) {
   const user = await requireUser();
@@ -20,6 +21,9 @@ export type SimpleFormState = { error?: string } | undefined;
 export async function createCampaignAction(_prev: SimpleFormState, formData: FormData): Promise<SimpleFormState> {
   const user = await requireUser();
   if (!user.companyId) return { error: "No company on this account." };
+
+  const entitlement = await checkCampaignCreationAllowed(user.companyId);
+  if (!entitlement.allowed) return { error: entitlement.reason };
 
   const name = String(formData.get("name") || "").trim();
   if (!name) return { error: "Name your campaign." };
@@ -66,7 +70,20 @@ export async function removeKeywordAction(formData: FormData): Promise<void> {
 
 export async function toggleCampaignStatusAction(formData: FormData): Promise<void> {
   const campaignId = String(formData.get("campaignId") || "");
-  const { campaign } = await ownedCampaignOrThrow(campaignId);
+  const { user, campaign } = await ownedCampaignOrThrow(campaignId);
+
+  // Reactivating (paused -> active) is subject to the same plan cap as
+  // creating a new campaign — otherwise a company could pause-and-unpause
+  // its way past the limit createCampaignAction enforces at creation time.
+  if (campaign.status === "paused" && user.companyId) {
+    const entitlement = await checkCampaignCreationAllowed(user.companyId);
+    if (!entitlement.allowed) {
+      const params = new URLSearchParams({ notice: entitlement.reason });
+      if (entitlement.upgradeTo) params.set("upgradeTo", entitlement.upgradeTo);
+      redirect(`/campaigns/${campaignId}?${params.toString()}`);
+    }
+  }
+
   await prisma.campaign.update({
     where: { id: campaign.id },
     data: { status: campaign.status === "active" ? "paused" : "active" },

@@ -1,14 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { OpportunitiesExplorer } from "@/components/OpportunitiesExplorer";
+import { getCompanyEntitlements, historyCutoff } from "@/lib/billing/entitlements";
+import { PLANS } from "@/lib/billing/plans";
+import { UpgradePrompt } from "@/components/UpgradePrompt";
 
 export default async function OpportunitiesPage() {
   const user = await requireUser();
   const companyId = user.companyId ?? "__none__";
+  const entitlements = await getCompanyEntitlements(companyId);
+  const cutoff = historyCutoff(entitlements.limits.historyDays);
 
   const [opportunities, campaignSources] = await Promise.all([
     prisma.opportunity.findMany({
-      where: { conversation: { campaign: { companyId } } },
+      where: {
+        conversation: { campaign: { companyId } },
+        ...(cutoff ? { analyzedAt: { gte: cutoff } } : {}),
+      },
       // Safety cap, not real pagination — this page's filter/sort UI
       // (OpportunitiesExplorer) works client-side over whatever's fetched
       // here, so a genuinely unbounded query would eventually both slow
@@ -58,6 +66,16 @@ export default async function OpportunitiesPage() {
         <h1 className="font-display text-2xl mb-1">Opportunities</h1>
         <p className="text-muted text-sm">Everything Scout has found, across every campaign.</p>
       </div>
+
+      {entitlements.limits.historyDays !== null && (
+        <UpgradePrompt
+          message={`Your plan shows the last ${entitlements.limits.historyDays} days of opportunity history.`}
+          currentPlanName={entitlements.planId ? PLANS[entitlements.planId].name : null}
+          upgradeTo={
+            entitlements.planId === "growth" ? "pro" : entitlements.planId === "starter" ? "growth" : entitlements.planId === null ? "starter" : null
+          }
+        />
+      )}
 
       {opportunities.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line bg-surface p-8 text-center">
