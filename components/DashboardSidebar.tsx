@@ -47,7 +47,7 @@ export function DashboardSidebar({
       )}
 
       <aside
-        className={`fixed md:sticky top-0 z-40 md:z-auto h-screen w-64 shrink-0 border-r border-line bg-paper flex flex-col transition-transform md:transition-none ${
+        className={`fixed md:sticky top-0 z-40 md:z-auto h-dvh md:h-screen w-64 shrink-0 border-r border-line bg-paper flex flex-col transition-transform md:transition-none ${
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
