@@ -17,11 +17,12 @@ async function getOrigin(): Promise<string> {
   return `${protocol}://${host}`;
 }
 
-async function ownedCompanyOrThrow() {
+/** One Stripe subscription per ACCOUNT (spec: multi-business support) — never per business. */
+async function ownedAccountOrThrow() {
   const user = await requireUser();
-  if (!user.companyId) throw new Error("No company on this account.");
-  const company = await prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
-  return { user, company };
+  if (!user.accountId) throw new Error("No account on this login.");
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: user.accountId } });
+  return { user, account };
 }
 
 function planIdFromFormData(formData: FormData): PlanId {
@@ -31,7 +32,7 @@ function planIdFromFormData(formData: FormData): PlanId {
 }
 
 /**
- * Starts a new Stripe Checkout session for the given plan. A company
+ * Starts a new Stripe Checkout session for the given plan. An account
  * already on an entitled subscription is redirected to the billing tab
  * instead of starting a second one — plan changes go through
  * changePlanAction, never a second Checkout (spec: "Prevent users from
@@ -39,30 +40,30 @@ function planIdFromFormData(formData: FormData): PlanId {
  */
 export async function startCheckoutAction(formData: FormData): Promise<void> {
   const planId = planIdFromFormData(formData);
-  const { user, company } = await ownedCompanyOrThrow();
+  const { user, account } = await ownedAccountOrThrow();
 
-  if (company.subscriptionStatus && ENTITLED_STATUSES.has(company.subscriptionStatus)) {
+  if (account.subscriptionStatus && ENTITLED_STATUSES.has(account.subscriptionStatus)) {
     redirect("/settings/billing?notice=already_subscribed");
   }
 
   const stripe = getStripe();
   const origin = await getOrigin();
 
-  let customerId = company.stripeCustomerId;
+  let customerId = account.stripeCustomerId;
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: user.email,
-      name: company.name,
-      metadata: { companyId: company.id },
+      name: user.name || user.email,
+      metadata: { accountId: account.id },
     });
     customerId = customer.id;
-    await prisma.company.update({ where: { id: company.id }, data: { stripeCustomerId: customerId } });
+    await prisma.account.update({ where: { id: account.id }, data: { stripeCustomerId: customerId } });
   }
 
-  // Only companies who have never trialed before get a free trial —
+  // Only accounts who have never trialed before get a free trial —
   // trialEndsAt is set once at first trial start and never cleared, so it
-  // doubles as "has this company ever trialed" (see prisma/schema.prisma).
-  const eligibleForTrial = !company.trialEndsAt;
+  // doubles as "has this account ever trialed" (see prisma/schema.prisma).
+  const eligibleForTrial = !account.trialEndsAt;
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
@@ -70,10 +71,10 @@ export async function startCheckoutAction(formData: FormData): Promise<void> {
     line_items: [{ price: stripePriceIdForPlan(planId), quantity: 1 }],
     subscription_data: {
       ...(eligibleForTrial ? { trial_period_days: TRIAL_DAYS } : {}),
-      metadata: { companyId: company.id, planId },
+      metadata: { accountId: account.id, planId },
     },
-    client_reference_id: company.id,
-    metadata: { companyId: company.id, planId },
+    client_reference_id: account.id,
+    metadata: { accountId: account.id, planId },
     success_url: `${origin}/settings/billing?checkout=success`,
     cancel_url: `${origin}/settings/billing?checkout=canceled`,
   });
@@ -88,19 +89,25 @@ export async function startCheckoutAction(formData: FormData): Promise<void> {
  * subscription. Standard Stripe proration applies; no bespoke billing
  * policy exists for this product yet, so this deliberately uses Stripe's
  * default ("create_prorations") rather than inventing one.
+ *
+ * Downgrading never deletes businesses or data even if the account now
+ * has more businesses than the new plan allows — lib/billing/entitlements.ts's
+ * checkBusinessCreationAllowed simply blocks creating MORE, the same way
+ * every other over-limit case in this app already works. Nothing here (or
+ * anywhere else) deletes a Company on downgrade.
  */
 export async function changePlanAction(formData: FormData): Promise<BillingActionState> {
   const planId = planIdFromFormData(formData);
-  const { company } = await ownedCompanyOrThrow();
-  if (!company.stripeSubscriptionId) return { error: "No active subscription to change." };
-  if (company.plan === planId) return { error: `You're already on the ${PLANS[planId].name} plan.` };
+  const { account } = await ownedAccountOrThrow();
+  if (!account.stripeSubscriptionId) return { error: "No active subscription to change." };
+  if (account.plan === planId) return { error: `You're already on the ${PLANS[planId].name} plan.` };
 
   const stripe = getStripe();
-  const subscription = await stripe.subscriptions.retrieve(company.stripeSubscriptionId);
+  const subscription = await stripe.subscriptions.retrieve(account.stripeSubscriptionId);
   const item = subscription.items.data[0];
   if (!item) return { error: "Your subscription has no billing item to change." };
 
-  await stripe.subscriptions.update(company.stripeSubscriptionId, {
+  await stripe.subscriptions.update(account.stripeSubscriptionId, {
     items: [{ id: item.id, price: stripePriceIdForPlan(planId) }],
     proration_behavior: "create_prorations",
     cancel_at_period_end: false,
@@ -115,21 +122,21 @@ export async function changePlanAction(formData: FormData): Promise<BillingActio
 }
 
 export async function cancelSubscriptionAction(): Promise<BillingActionState> {
-  const { company } = await ownedCompanyOrThrow();
-  if (!company.stripeSubscriptionId) return { error: "No active subscription to cancel." };
+  const { account } = await ownedAccountOrThrow();
+  if (!account.stripeSubscriptionId) return { error: "No active subscription to cancel." };
 
   const stripe = getStripe();
-  await stripe.subscriptions.update(company.stripeSubscriptionId, { cancel_at_period_end: true });
+  await stripe.subscriptions.update(account.stripeSubscriptionId, { cancel_at_period_end: true });
   revalidatePath("/settings/billing");
   return undefined;
 }
 
 export async function reactivateSubscriptionAction(): Promise<BillingActionState> {
-  const { company } = await ownedCompanyOrThrow();
-  if (!company.stripeSubscriptionId) return { error: "No subscription to reactivate." };
+  const { account } = await ownedAccountOrThrow();
+  if (!account.stripeSubscriptionId) return { error: "No subscription to reactivate." };
 
   const stripe = getStripe();
-  await stripe.subscriptions.update(company.stripeSubscriptionId, { cancel_at_period_end: false });
+  await stripe.subscriptions.update(account.stripeSubscriptionId, { cancel_at_period_end: false });
   revalidatePath("/settings/billing");
   return undefined;
 }
@@ -158,13 +165,13 @@ export async function reactivateSubscriptionFormAction(): Promise<void> {
 
 /** Hands off to Stripe's own Customer Portal for payment-method and invoice management. */
 export async function openBillingPortalAction(): Promise<void> {
-  const { company } = await ownedCompanyOrThrow();
-  if (!company.stripeCustomerId) throw new Error("No billing account yet — subscribe to a plan first.");
+  const { account } = await ownedAccountOrThrow();
+  if (!account.stripeCustomerId) throw new Error("No billing account yet — subscribe to a plan first.");
 
   const stripe = getStripe();
   const origin = await getOrigin();
   const session = await stripe.billingPortal.sessions.create({
-    customer: company.stripeCustomerId,
+    customer: account.stripeCustomerId,
     return_url: `${origin}/settings/billing`,
   });
   redirect(session.url);

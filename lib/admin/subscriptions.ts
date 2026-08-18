@@ -14,9 +14,9 @@ export type AdminSubscriptionsSummary = {
   totalPaying: number;
 };
 
-/** Aggregates Company's Stripe-synced fields — Company.subscriptionStatus/plan are themselves written only from verified Stripe webhook events (see app/api/webhooks/stripe/route.ts), so this IS the Stripe-sourced state, just read locally instead of re-querying Stripe for every company. */
+/** Aggregates Account's Stripe-synced fields — Account.subscriptionStatus/plan are themselves written only from verified Stripe webhook events (see app/api/webhooks/stripe/route.ts), so this IS the Stripe-sourced state, just read locally instead of re-querying Stripe for every account. One subscription per account regardless of business count (spec: multi-business support). */
 export async function getSubscriptionsSummary(): Promise<AdminSubscriptionsSummary> {
-  const grouped = await prisma.company.groupBy({
+  const grouped = await prisma.account.groupBy({
     by: ["subscriptionStatus", "plan"],
     _count: true,
   });

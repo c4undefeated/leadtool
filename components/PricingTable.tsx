@@ -30,6 +30,7 @@ export function PricingTable({ authenticated }: { authenticated: boolean }) {
               </span>
             )}
             <h3 className="font-display text-xl">{plan.name}</h3>
+            <p className="text-xs text-muted mt-0.5">{plan.tagline}</p>
             <p className="mt-2">
               <span className="text-3xl font-display">${plan.priceUsd}</span>
               <span className="text-muted text-sm">/month</span>

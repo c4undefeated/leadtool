@@ -21,13 +21,17 @@ export async function signUpAction(_prev: AuthFormState, formData: FormData): Pr
 
   const passwordHash = await hashPassword(password);
 
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      name: name || null,
-      company: { create: { name: companyName } },
-    },
+  // Account (subscription owner) is created first, then the signup's
+  // business (Company) beneath it, then the user — linked to both the
+  // account and, as their initial active business, the new company. See
+  // prisma/schema.prisma's Account doc comment for why this three-level
+  // shape exists (multi-business support).
+  const user = await prisma.$transaction(async (tx) => {
+    const account = await tx.account.create({ data: {} });
+    const company = await tx.company.create({ data: { name: companyName, accountId: account.id } });
+    return tx.user.create({
+      data: { email, passwordHash, name: name || null, accountId: account.id, companyId: company.id },
+    });
   });
 
   await createSession(user.id);

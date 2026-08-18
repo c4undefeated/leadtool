@@ -17,14 +17,16 @@
 export type PlanId = "starter" | "growth" | "pro";
 
 export type PlanLimits = {
-  /** Active campaigns a company may run at once (paused campaigns don't count). */
+  /** Active campaigns a business may run at once (paused campaigns don't count) — per business, unchanged by multi-business support. */
   maxActiveCampaigns: number;
-  /** AI (Gemini) conversation analyses in a rolling ~30-day window. */
+  /** AI (Gemini) conversation analyses in a rolling ~30-day window — per business. */
   maxAiAnalysesPerMonth: number;
-  /** Engagement (comment/DM draft) generations in a rolling ~30-day window. */
+  /** Engagement (comment/DM draft) generations in a rolling ~30-day window — per business. */
   maxEngagementGenerationsPerMonth: number;
-  /** How many days of opportunity history the feed/detail pages show. null = no limit. */
+  /** How many days of opportunity history the feed/detail pages show. null = no limit. Per business. */
   historyDays: number | null;
+  /** Businesses (workspaces) the ACCOUNT as a whole may create — the one limit that's account-wide, not per business. */
+  maxBusinesses: number;
 };
 
 export type PlanDefinition = {
@@ -33,6 +35,8 @@ export type PlanDefinition = {
   priceUsd: number;
   mostPopular?: boolean;
   limits: PlanLimits;
+  /** Short positioning line shown right under the plan name on the pricing page — not a feature bullet. */
+  tagline: string;
   /** Customer-facing bullets only — outcomes, never provider/API internals. */
   features: string[];
   /** Env var holding this plan's live Stripe Price ID (see stripePriceIdForPlan). */
@@ -51,8 +55,11 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
       maxAiAnalysesPerMonth: 300,
       maxEngagementGenerationsPerMonth: 50,
       historyDays: 30,
+      maxBusinesses: 1,
     },
+    tagline: "For one business",
     features: [
+      "1 business",
       "Reddit + X/Twitter discovery",
       "Automatic daily scanning — no manual scans, ever",
       "AI-powered opportunity analysis: intent, fit, match & confidence scoring",
@@ -76,11 +83,14 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
       maxAiAnalysesPerMonth: 1000,
       maxEngagementGenerationsPerMonth: 200,
       historyDays: 90,
+      maxBusinesses: 3,
     },
+    tagline: "For businesses managing multiple brands",
     features: [
+      "3 businesses",
       "Everything in Starter",
-      "3x the discovery & AI analysis capacity",
-      "3 active campaigns",
+      "3x the discovery & AI analysis capacity per business",
+      "3 active campaigns per business",
       "Higher engagement-guidance allowance",
       "90 days of opportunity history",
       "Priority support",
@@ -96,11 +106,14 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
       maxAiAnalysesPerMonth: 3000,
       maxEngagementGenerationsPerMonth: 750,
       historyDays: null,
+      maxBusinesses: 10,
     },
+    tagline: "For operators managing multiple businesses",
     features: [
+      "10 businesses",
       "Everything in Growth",
-      "Highest discovery & AI analysis capacity",
-      "Up to 10 active campaigns",
+      "Highest discovery & AI analysis capacity per business",
+      "Up to 10 active campaigns per business",
       "Highest engagement-guidance allowance",
       "Full, unlimited opportunity history",
       "Priority support",
@@ -126,6 +139,10 @@ export const TRIAL_LIMITS: PlanLimits = {
   maxAiAnalysesPerMonth: 60,
   maxEngagementGenerationsPerMonth: 10,
   historyDays: 30,
+  // One business during trial regardless of which plan it's nominally
+  // attached to — same reasoning as every other trial limit above: prove
+  // the product works on one business before paying for more.
+  maxBusinesses: 1,
 };
 
 /** No subscription at all — locked out until they subscribe. */
@@ -134,6 +151,7 @@ export const NO_PLAN_LIMITS: PlanLimits = {
   maxAiAnalysesPerMonth: 0,
   maxEngagementGenerationsPerMonth: 0,
   historyDays: 0,
+  maxBusinesses: 0,
 };
 
 export function planIdFromStripePriceId(priceId: string): PlanId | null {
