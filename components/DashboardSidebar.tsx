@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { logOutAction } from "@/lib/actions/auth";
+import { BusinessSwitcher } from "@/components/BusinessSwitcher";
+import type { BusinessSummary } from "@/lib/business";
 
 const PRIMARY_NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
@@ -38,12 +40,16 @@ const ADMIN_NAV_ITEMS = [
 ];
 
 export function DashboardSidebar({
-  companyName,
+  businesses,
+  activeCompanyId,
+  canAddBusiness,
   userName,
   userEmail,
   isAdmin = false,
 }: {
-  companyName: string;
+  businesses: BusinessSummary[];
+  activeCompanyId: string | null;
+  canAddBusiness: boolean;
   userName: string | null;
   userEmail: string;
   isAdmin?: boolean;
@@ -77,7 +83,7 @@ export function DashboardSidebar({
           <Link href="/dashboard" className="font-display text-xl block" onClick={() => setOpen(false)}>
             Intent<span className="text-accent">Scout</span>
           </Link>
-          <p className="text-xs text-muted font-mono mt-1 truncate">{companyName}</p>
+          <BusinessSwitcher businesses={businesses} activeCompanyId={activeCompanyId} canAddBusiness={canAddBusiness} />
         </div>
 
         <nav className="flex-1 px-3 py-4 flex flex-col gap-4 overflow-y-auto">

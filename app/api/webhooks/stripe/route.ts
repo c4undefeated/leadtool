@@ -9,11 +9,13 @@ import { planIdFromStripePriceId } from "@/lib/billing/plans";
 export const dynamic = "force-dynamic";
 
 /**
- * The single inbound Stripe webhook receiver. Company.plan/subscriptionStatus/
+ * The single inbound Stripe webhook receiver. Account.plan/subscriptionStatus/
  * currentPeriodEnd/etc are written ONLY here, from a signature-verified
  * event — never optimistically from a Checkout success redirect or any
  * other client-facing code path (spec: "The database should be
- * synchronized from verified Stripe events").
+ * synchronized from verified Stripe events"). One Account = one Stripe
+ * subscription regardless of how many businesses (Company) it contains —
+ * see prisma/schema.prisma's Account doc comment.
  *
  * Idempotent by construction: StripeWebhookEvent.id is the Stripe event id
  * itself, so a redelivered or dashboard-replayed event hits a duplicate
@@ -62,15 +64,15 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "checkout.session.completed": {
       // Belt-and-suspenders self-healing: startCheckoutAction always creates
-      // the Stripe customer and links it to the company BEFORE Checkout
+      // the Stripe customer and links it to the account BEFORE Checkout
       // starts, so this should be a no-op in practice. Kept so the
-      // customer<->company link can never silently go missing if that
+      // customer<->account link can never silently go missing if that
       // invariant is ever violated.
       const session = event.data.object as Stripe.Checkout.Session;
-      const companyId = session.client_reference_id || session.metadata?.companyId;
-      if (companyId && session.customer) {
-        await prisma.company.updateMany({
-          where: { id: companyId, stripeCustomerId: null },
+      const accountId = session.client_reference_id || session.metadata?.accountId;
+      if (accountId && session.customer) {
+        await prisma.account.updateMany({
+          where: { id: accountId, stripeCustomerId: null },
           data: { stripeCustomerId: String(session.customer) },
         });
       }
@@ -80,7 +82,7 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      await syncSubscriptionToCompany(event.data.object as Stripe.Subscription);
+      await syncSubscriptionToAccount(event.data.object as Stripe.Subscription);
       break;
     }
 
@@ -109,8 +111,8 @@ function resolveCurrentPeriodEnd(subscription: Stripe.Subscription): Date | null
   return legacy ? new Date(legacy * 1000) : null;
 }
 
-async function syncSubscriptionToCompany(subscription: Stripe.Subscription): Promise<void> {
-  const companyId = subscription.metadata?.companyId;
+async function syncSubscriptionToAccount(subscription: Stripe.Subscription): Promise<void> {
+  const accountId = subscription.metadata?.accountId;
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
   const priceId = subscription.items.data[0]?.price.id ?? null;
   const planId = priceId ? planIdFromStripePriceId(priceId) : null;
@@ -126,13 +128,13 @@ async function syncSubscriptionToCompany(subscription: Stripe.Subscription): Pro
     stripeCustomerId: customerId,
   };
 
-  const target = companyId
-    ? await prisma.company.updateMany({ where: { id: companyId }, data })
-    : await prisma.company.updateMany({ where: { stripeCustomerId: customerId }, data });
+  const target = accountId
+    ? await prisma.account.updateMany({ where: { id: accountId }, data })
+    : await prisma.account.updateMany({ where: { stripeCustomerId: customerId }, data });
 
   if (target.count === 0) {
     console.error(
-      `[stripe webhook] subscription ${subscription.id} (customer ${customerId}) matched no company — companyId metadata: ${companyId ?? "none"}`,
+      `[stripe webhook] subscription ${subscription.id} (customer ${customerId}) matched no account — accountId metadata: ${accountId ?? "none"}`,
     );
   }
 }

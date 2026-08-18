@@ -46,8 +46,8 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     lastCompletedScan,
     scanRunAgg7d,
   ] = await Promise.all([
-    prisma.company.count(),
-    prisma.company.groupBy({ by: ["plan", "subscriptionStatus"], _count: true }),
+    prisma.account.count(),
+    prisma.account.groupBy({ by: ["plan", "subscriptionStatus"], _count: true }),
     prisma.opportunity.count(),
     prisma.opportunity.count({ where: { analyzedAt: { gte: sinceToday } } }),
     prisma.opportunity.count({ where: { analyzedAt: { gte: since7 } } }),

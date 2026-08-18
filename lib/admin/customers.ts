@@ -3,15 +3,15 @@ import { prisma } from "@/lib/prisma";
 const PAGE_SIZE = 25;
 
 export type CustomerListRow = {
-  id: string;
-  name: string;
+  id: string; // Account id
   ownerEmail: string | null;
   createdAt: Date;
   plan: string | null;
   subscriptionStatus: string | null;
   trialEndsAt: Date | null;
+  businessCount: number;
+  businessNames: string[];
   opportunityCount: number;
-  campaignCount: number;
   lastScanAt: Date | null;
 };
 
@@ -22,76 +22,89 @@ export type CustomerListResult = {
   pageSize: number;
 };
 
-/** Server-side paginated + searched — never fetches the full company table (spec section 17). */
+/**
+ * "Customer" is the Account (the subscription owner — spec: multi-
+ * business support), not an individual business anymore. Server-side
+ * paginated + searched — never fetches the full account table (spec
+ * section 17/23).
+ */
 export async function listCustomers(search: string, page: number): Promise<CustomerListResult> {
   const where = search.trim()
     ? {
         OR: [
-          { name: { contains: search, mode: "insensitive" as const } },
+          { companies: { some: { name: { contains: search, mode: "insensitive" as const } } } },
           { users: { some: { email: { contains: search, mode: "insensitive" as const } } } },
         ],
       }
     : {};
 
   const safePage = Math.max(1, page);
-  const [total, companies] = await Promise.all([
-    prisma.company.count({ where }),
-    prisma.company.findMany({
+  const [total, accounts] = await Promise.all([
+    prisma.account.count({ where }),
+    prisma.account.findMany({
       where,
       orderBy: { createdAt: "desc" },
       skip: (safePage - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
         id: true,
-        name: true,
         createdAt: true,
         plan: true,
         subscriptionStatus: true,
         trialEndsAt: true,
         users: { select: { email: true }, take: 1, orderBy: { createdAt: "asc" } },
-        _count: { select: { campaigns: true } },
-        campaigns: { select: { lastScanAt: true }, orderBy: { lastScanAt: "desc" }, take: 1 },
+        companies: {
+          select: { id: true, name: true, campaigns: { select: { lastScanAt: true }, orderBy: { lastScanAt: "desc" }, take: 1 } },
+        },
       },
     }),
   ]);
 
-  // Per-company opportunity counts for just this page of companies (bounded
-  // to PAGE_SIZE companies, not a full-table scan). Opportunity has no
-  // direct companyId column (it's reached via conversation -> campaign ->
-  // company), so this is a row fetch + in-memory tally rather than a
-  // single groupBy — still cheap since it's scoped to this page only.
-  const companyIds = companies.map((c) => c.id);
+  const companyIds = accounts.flatMap((a) => a.companies.map((c) => c.id));
   const opportunityRows = companyIds.length
     ? await prisma.opportunity.findMany({
         where: { conversation: { campaign: { companyId: { in: companyIds } } } },
         select: { conversation: { select: { campaign: { select: { companyId: true } } } } },
       })
     : [];
-  const oppCountByCompany = new Map<string, number>();
+  const companyToAccount = new Map<string, string>();
+  for (const a of accounts) for (const c of a.companies) companyToAccount.set(c.id, a.id);
+  const oppCountByAccount = new Map<string, number>();
   for (const o of opportunityRows) {
-    const id = o.conversation.campaign.companyId;
-    oppCountByCompany.set(id, (oppCountByCompany.get(id) ?? 0) + 1);
+    const accId = companyToAccount.get(o.conversation.campaign.companyId);
+    if (accId) oppCountByAccount.set(accId, (oppCountByAccount.get(accId) ?? 0) + 1);
   }
 
-  const rows: CustomerListRow[] = companies.map((c) => ({
-    id: c.id,
-    name: c.name,
-    ownerEmail: c.users[0]?.email ?? null,
-    createdAt: c.createdAt,
-    plan: c.plan,
-    subscriptionStatus: c.subscriptionStatus,
-    trialEndsAt: c.trialEndsAt,
-    opportunityCount: oppCountByCompany.get(c.id) ?? 0,
-    campaignCount: c._count.campaigns,
-    lastScanAt: c.campaigns[0]?.lastScanAt ?? null,
-  }));
+  const rows: CustomerListRow[] = accounts.map((a) => {
+    const lastScanTimes = a.companies.flatMap((c) => c.campaigns.map((camp) => camp.lastScanAt)).filter((d): d is Date => !!d);
+    return {
+      id: a.id,
+      ownerEmail: a.users[0]?.email ?? null,
+      createdAt: a.createdAt,
+      plan: a.plan,
+      subscriptionStatus: a.subscriptionStatus,
+      trialEndsAt: a.trialEndsAt,
+      businessCount: a.companies.length,
+      businessNames: a.companies.map((c) => c.name),
+      opportunityCount: oppCountByAccount.get(a.id) ?? 0,
+      lastScanAt: lastScanTimes.length ? new Date(Math.max(...lastScanTimes.map((d) => d.getTime()))) : null,
+    };
+  });
 
   return { rows, total, page: safePage, pageSize: PAGE_SIZE };
 }
 
-export type CustomerDetail = {
+export type CustomerBusinessRow = {
   id: string;
   name: string;
+  createdAt: Date;
+  hasOffer: boolean;
+  campaigns: { id: string; name: string; sourceType: string; status: string; lastScanAt: Date | null; lastScanStatus: string | null }[];
+  opportunityCount: number;
+};
+
+export type CustomerDetail = {
+  id: string; // Account id
   createdAt: Date;
   users: { id: string; email: string; name: string | null; role: string; createdAt: Date }[];
   plan: string | null;
@@ -101,18 +114,16 @@ export type CustomerDetail = {
   cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
-  hasOffer: boolean;
-  campaigns: { id: string; name: string; sourceType: string; status: string; lastScanAt: Date | null; lastScanStatus: string | null }[];
-  opportunityCount: number;
+  businesses: CustomerBusinessRow[];
+  totalOpportunityCount: number;
   lastActivityAt: Date | null;
 };
 
-export async function getCustomerDetail(companyId: string): Promise<CustomerDetail | null> {
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
+export async function getCustomerDetail(accountId: string): Promise<CustomerDetail | null> {
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
     select: {
       id: true,
-      name: true,
       createdAt: true,
       plan: true,
       subscriptionStatus: true,
@@ -121,41 +132,71 @@ export async function getCustomerDetail(companyId: string): Promise<CustomerDeta
       cancelAtPeriodEnd: true,
       stripeCustomerId: true,
       stripeSubscriptionId: true,
-      offer: { select: { id: true } },
       users: { select: { id: true, email: true, name: true, role: true, createdAt: true } },
-      campaigns: {
-        select: { id: true, name: true, sourceType: true, status: true, lastScanAt: true, lastScanStatus: true },
-        orderBy: { createdAt: "desc" },
-        take: 50,
+      companies: {
+        orderBy: { createdAt: "asc" },
+        take: 10, // bounded — no plan currently allows more than 10 businesses
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          offer: { select: { id: true } },
+          campaigns: {
+            select: { id: true, name: true, sourceType: true, status: true, lastScanAt: true, lastScanStatus: true },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          },
+        },
       },
     },
   });
-  if (!company) return null;
+  if (!account) return null;
 
-  const [opportunityCount, lastActivity] = await Promise.all([
-    prisma.opportunity.count({ where: { conversation: { campaign: { companyId } } } }),
-    prisma.activity.findFirst({
-      where: { opportunity: { conversation: { campaign: { companyId } } } },
-      orderBy: { at: "desc" },
-      select: { at: true },
-    }),
+  const companyIds = account.companies.map((c) => c.id);
+  const [opportunityRows, lastActivity] = await Promise.all([
+    companyIds.length
+      ? prisma.opportunity.findMany({
+          where: { conversation: { campaign: { companyId: { in: companyIds } } } },
+          select: { conversation: { select: { campaign: { select: { companyId: true } } } } },
+        })
+      : Promise.resolve([]),
+    companyIds.length
+      ? prisma.activity.findFirst({
+          where: { opportunity: { conversation: { campaign: { companyId: { in: companyIds } } } } },
+          orderBy: { at: "desc" },
+          select: { at: true },
+        })
+      : Promise.resolve(null),
   ]);
 
+  const oppCountByCompany = new Map<string, number>();
+  for (const o of opportunityRows) {
+    const id = o.conversation.campaign.companyId;
+    oppCountByCompany.set(id, (oppCountByCompany.get(id) ?? 0) + 1);
+  }
+
+  const businesses: CustomerBusinessRow[] = account.companies.map((c) => ({
+    id: c.id,
+    name: c.name,
+    createdAt: c.createdAt,
+    hasOffer: !!c.offer,
+    campaigns: c.campaigns,
+    opportunityCount: oppCountByCompany.get(c.id) ?? 0,
+  }));
+
   return {
-    id: company.id,
-    name: company.name,
-    createdAt: company.createdAt,
-    users: company.users,
-    plan: company.plan,
-    subscriptionStatus: company.subscriptionStatus,
-    trialEndsAt: company.trialEndsAt,
-    currentPeriodEnd: company.currentPeriodEnd,
-    cancelAtPeriodEnd: company.cancelAtPeriodEnd,
-    stripeCustomerId: company.stripeCustomerId,
-    stripeSubscriptionId: company.stripeSubscriptionId,
-    hasOffer: !!company.offer,
-    campaigns: company.campaigns,
-    opportunityCount,
+    id: account.id,
+    createdAt: account.createdAt,
+    users: account.users,
+    plan: account.plan,
+    subscriptionStatus: account.subscriptionStatus,
+    trialEndsAt: account.trialEndsAt,
+    currentPeriodEnd: account.currentPeriodEnd,
+    cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+    stripeCustomerId: account.stripeCustomerId,
+    stripeSubscriptionId: account.stripeSubscriptionId,
+    businesses,
+    totalOpportunityCount: [...oppCountByCompany.values()].reduce((a, b) => a + b, 0),
     lastActivityAt: lastActivity?.at ?? null,
   };
 }

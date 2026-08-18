@@ -16,8 +16,8 @@
  *
  * Run with: npx tsx scripts/testBilling.ts
  */
-import { PLANS, isPlanId, planIdFromStripePriceId, stripePriceIdForPlan } from "@/lib/billing/plans";
-import { resolveEntitlements, type CompanyBillingFields } from "@/lib/billing/entitlements";
+import { PLANS, isPlanId, planIdFromStripePriceId, stripePriceIdForPlan, TRIAL_LIMITS, NO_PLAN_LIMITS } from "@/lib/billing/plans";
+import { resolveEntitlements, type AccountBillingFields } from "@/lib/billing/entitlements";
 
 let pass = 0;
 let fail = 0;
@@ -35,9 +35,9 @@ function check(id: string, condition: boolean, detail: string) {
   }
 }
 
-function baseCompany(overrides: Partial<CompanyBillingFields> = {}): CompanyBillingFields {
+function baseAccount(overrides: Partial<AccountBillingFields> = {}): AccountBillingFields {
   return {
-    id: "co_test",
+    id: "acct_test",
     plan: null,
     subscriptionStatus: null,
     trialEndsAt: null,
@@ -80,7 +80,7 @@ function main() {
   // --- Plan limits are strictly increasing (Growth > Starter, Pro > Growth) ---
   // A pricing mistake here (e.g. Growth accidentally capped below Starter)
   // would silently make an upgrade a downgrade — this guards against that.
-  const dims = ["maxActiveCampaigns", "maxAiAnalysesPerMonth", "maxEngagementGenerationsPerMonth"] as const;
+  const dims = ["maxActiveCampaigns", "maxAiAnalysesPerMonth", "maxEngagementGenerationsPerMonth", "maxBusinesses"] as const;
   for (const dim of dims) {
     check(
       `plan ordering: growth.${dim} > starter.${dim}`,
@@ -96,13 +96,21 @@ function main() {
   check("plan pricing: starter < growth < pro", PLANS.starter.priceUsd < PLANS.growth.priceUsd && PLANS.growth.priceUsd < PLANS.pro.priceUsd, "expected strictly increasing price");
   check("growth is the only plan marked mostPopular", !!PLANS.growth.mostPopular && !PLANS.starter.mostPopular && !PLANS.pro.mostPopular, "expected only growth.mostPopular === true");
 
+  // --- Multi-business support: exact business limits per spec ---
+  check("Starter allows exactly 1 business", PLANS.starter.limits.maxBusinesses === 1, `got ${PLANS.starter.limits.maxBusinesses}`);
+  check("Growth allows exactly 3 businesses", PLANS.growth.limits.maxBusinesses === 3, `got ${PLANS.growth.limits.maxBusinesses}`);
+  check("Pro allows exactly 10 businesses", PLANS.pro.limits.maxBusinesses === 10, `got ${PLANS.pro.limits.maxBusinesses}`);
+  check("Trial allows exactly 1 business regardless of underlying plan", TRIAL_LIMITS.maxBusinesses === 1, `got ${TRIAL_LIMITS.maxBusinesses}`);
+  check("No subscription allows 0 businesses (locked out until subscribed)", NO_PLAN_LIMITS.maxBusinesses === 0, `got ${NO_PLAN_LIMITS.maxBusinesses}`);
+
   // --- resolveEntitlements ---
-  const noSub = resolveEntitlements(baseCompany());
+  const noSub = resolveEntitlements(baseAccount());
   check("no subscription: not entitled", noSub.isEntitled === false, "expected false");
   check("no subscription: zero limits (locked out, not silently capacity-1)", noSub.limits.maxActiveCampaigns === 0, "expected 0");
+  check("no subscription: zero business limit too", noSub.limits.maxBusinesses === 0, "expected 0");
 
   const trialing = resolveEntitlements(
-    baseCompany({ plan: "pro", subscriptionStatus: "trialing", trialEndsAt: new Date("2026-08-25T00:00:00Z") }),
+    baseAccount({ plan: "pro", subscriptionStatus: "trialing", trialEndsAt: new Date("2026-08-25T00:00:00Z") }),
   );
   check("trialing: entitled", trialing.isEntitled === true, "expected true");
   check("trialing: isTrialing flag set", trialing.isTrialing === true, "expected true");
@@ -112,42 +120,47 @@ function main() {
     `trial limit ${trialing.limits.maxAiAnalysesPerMonth} should be well under Pro's ${PLANS.pro.limits.maxAiAnalysesPerMonth}`,
   );
   check(
+    "trialing on the Pro plan still gets TRIAL business limit, not Pro's 10",
+    trialing.limits.maxBusinesses === 1,
+    `trial business limit ${trialing.limits.maxBusinesses} should be 1, not Pro's ${PLANS.pro.limits.maxBusinesses}`,
+  );
+  check(
     "trialing: periodStart is exactly TRIAL_DAYS before trialEndsAt",
     trialing.periodStart.getTime() === new Date("2026-08-25T00:00:00Z").getTime() - 7 * 24 * 60 * 60 * 1000,
     "expected trialEndsAt - 7 days",
   );
 
   const active = resolveEntitlements(
-    baseCompany({ plan: "growth", subscriptionStatus: "active", currentPeriodEnd: new Date("2026-09-01T00:00:00Z") }),
+    baseAccount({ plan: "growth", subscriptionStatus: "active", currentPeriodEnd: new Date("2026-09-01T00:00:00Z") }),
   );
   check("active: entitled", active.isEntitled === true, "expected true");
   check("active: uses the plan's real limits, not trial limits", active.limits.maxActiveCampaigns === PLANS.growth.limits.maxActiveCampaigns, "expected Growth's real limit");
 
-  const pastDue = resolveEntitlements(baseCompany({ plan: "starter", subscriptionStatus: "past_due" }));
+  const pastDue = resolveEntitlements(baseAccount({ plan: "starter", subscriptionStatus: "past_due" }));
   check(
     "past_due: still entitled (grace period during payment retry, not an immediate cutoff)",
     pastDue.isEntitled === true,
     "expected true — see report for this as a deliberate, reviewable policy choice",
   );
 
-  const unpaid = resolveEntitlements(baseCompany({ plan: "starter", subscriptionStatus: "unpaid" }));
+  const unpaid = resolveEntitlements(baseAccount({ plan: "starter", subscriptionStatus: "unpaid" }));
   check("unpaid: not entitled", unpaid.isEntitled === false, "expected false");
 
-  const canceled = resolveEntitlements(baseCompany({ plan: "starter", subscriptionStatus: "canceled" }));
+  const canceled = resolveEntitlements(baseAccount({ plan: "starter", subscriptionStatus: "canceled" }));
   check("canceled: not entitled", canceled.isEntitled === false, "expected false");
 
-  const incompleteExpired = resolveEntitlements(baseCompany({ plan: "starter", subscriptionStatus: "incomplete_expired" }));
+  const incompleteExpired = resolveEntitlements(baseAccount({ plan: "starter", subscriptionStatus: "incomplete_expired" }));
   check("incomplete_expired: not entitled", incompleteExpired.isEntitled === false, "expected false");
 
   const cancelPending = resolveEntitlements(
-    baseCompany({ plan: "growth", subscriptionStatus: "active", cancelAtPeriodEnd: true, currentPeriodEnd: new Date("2026-09-01T00:00:00Z") }),
+    baseAccount({ plan: "growth", subscriptionStatus: "active", cancelAtPeriodEnd: true, currentPeriodEnd: new Date("2026-09-01T00:00:00Z") }),
   );
   check("cancel_at_period_end: still entitled until the period actually ends", cancelPending.isEntitled === true, "expected true");
   check("cancel_at_period_end: flag passed through for the UI to show a warning", cancelPending.cancelAtPeriodEnd === true, "expected true");
 
-  const noPriorTrial = resolveEntitlements(baseCompany());
+  const noPriorTrial = resolveEntitlements(baseAccount());
   check("hasEverTrialed: false when trialEndsAt has never been set", noPriorTrial.hasEverTrialed === false, "expected false");
-  const priorTrial = resolveEntitlements(baseCompany({ subscriptionStatus: "canceled", trialEndsAt: new Date("2026-01-01T00:00:00Z") }));
+  const priorTrial = resolveEntitlements(baseAccount({ subscriptionStatus: "canceled", trialEndsAt: new Date("2026-01-01T00:00:00Z") }));
   check(
     "hasEverTrialed: true once trialEndsAt has ever been set, even after the subscription later canceled",
     priorTrial.hasEverTrialed === true,

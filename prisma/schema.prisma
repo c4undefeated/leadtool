@@ -20,11 +20,53 @@ generator client {
   provider = "prisma-client-js"
 }
 
+/// The IntentScout account/subscription owner (spec: "multi-business
+/// support"). One Account has exactly one Stripe subscription and one or
+/// more Businesses (the Company model, reused as-is rather than
+/// duplicated — see Company's own doc comment) beneath it. A User belongs
+/// to exactly one Account (User.accountId) and always has exactly one
+/// currently ACTIVE business (User.companyId, unchanged in meaning from
+/// before this model existed — every existing companyId-scoped query
+/// across the app keeps working unmodified, since "the user's company"
+/// now simply means "the user's active business" instead of "the user's
+/// only business").
+model Account {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  companies Company[]
+  users     User[]
+
+  // --- Billing (see lib/billing/entitlements.ts) ---
+  // Moved here from Company: one Stripe subscription per ACCOUNT, not per
+  // business, so a multi-business account is billed once regardless of
+  // how many businesses it contains (spec: "Do NOT create a separate
+  // subscription for each business"). Every field below is written ONLY
+  // by the Stripe webhook handler (app/api/webhooks/stripe/route.ts) from
+  // verified Stripe events — never optimistically set by a client
+  // redirect or a server action.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String? // durable identifier for plan resolution — see lib/billing/plans.ts's planIdFromStripePriceId
+  plan                 String? // "starter" | "growth" | "pro" — resolved FROM stripePriceId, never independently settable
+  subscriptionStatus   String? // Stripe Subscription.status verbatim: trialing | active | past_due | unpaid | canceled | incomplete | incomplete_expired
+  trialEndsAt          DateTime? // set once at first-ever trial start and never cleared — doubles as "has this account ever trialed" so a second trial can't be started by canceling and re-subscribing
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
   name         String?
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id])
+  // The user's currently ACTIVE business — switchable among the account's
+  // own Company rows (lib/actions/business.ts's switchBusinessAction),
+  // never trusted from the client without re-verifying it belongs to
+  // accountId first. Unchanged column, reinterpreted meaning: every
+  // existing `companyId ?? "__none__"` tenant-scoping call site across the
+  // app is completely unaffected by multi-business support.
   companyId    String?
   company      Company? @relation(fields: [companyId], references: [id])
   createdAt    DateTime @default(now())
@@ -38,28 +80,21 @@ model User {
   role String @default("user")
 }
 
+/// A single business/workspace (spec: "Businesses belong to the
+/// account"). Reused as the Business entity rather than introducing a
+/// redundant model — it already held every business-specific relation
+/// (Offer, Campaign, and everything beneath Campaign) before multi-
+/// business support existed, so nothing about how a business's own data
+/// is scoped or queried needed to change; only accountId is new.
 model Company {
   id        String     @id @default(cuid())
+  accountId String
+  account   Account    @relation(fields: [accountId], references: [id])
   name      String
   users     User[]
   offer     Offer?
   campaigns Campaign[]
   createdAt DateTime   @default(now())
-
-  // --- Billing (see lib/billing/entitlements.ts) ---
-  // Every field below is written ONLY by the Stripe webhook handler
-  // (app/api/webhooks/stripe/route.ts) from verified Stripe events — never
-  // optimistically set by a client redirect or a server action, so this is
-  // always what Stripe itself last confirmed, not what a checkout attempt
-  // merely started.
-  stripeCustomerId     String?   @unique
-  stripeSubscriptionId String?   @unique
-  stripePriceId        String? // durable identifier for plan resolution — see lib/billing/plans.ts's planIdFromStripePriceId
-  plan                 String? // "starter" | "growth" | "pro" — resolved FROM stripePriceId, never independently settable
-  subscriptionStatus   String? // Stripe Subscription.status verbatim: trialing | active | past_due | unpaid | canceled | incomplete | incomplete_expired
-  trialEndsAt          DateTime? // set once at first-ever trial start and never cleared — doubles as "has this company ever trialed" so a second trial can't be started by canceling and re-subscribing
-  currentPeriodEnd     DateTime?
-  cancelAtPeriodEnd    Boolean   @default(false)
 }
 
 /// Idempotency ledger for inbound Stripe webhook deliveries — id is the

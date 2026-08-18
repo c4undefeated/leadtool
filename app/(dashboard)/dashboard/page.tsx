@@ -30,6 +30,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
+        <p className="text-xs font-mono uppercase tracking-widest text-accent mb-1">{user.company?.name}</p>
         <h1 className="font-display text-2xl mb-1">Welcome back{user.name ? `, ${user.name}` : ""}</h1>
         <p className="text-muted text-sm">Here's what Scout found across your campaigns.</p>
       </div>

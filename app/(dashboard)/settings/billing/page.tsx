@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCompanyEntitlements } from "@/lib/billing/entitlements";
+import { getCompanyEntitlements, countBusinesses } from "@/lib/billing/entitlements";
 import { getStripe } from "@/lib/stripe";
 import { PLAN_ORDER, PLANS, TRIAL_DAYS, type PlanId } from "@/lib/billing/plans";
 import {
@@ -38,22 +39,26 @@ export default async function BillingSettingsPage({
   const { checkout, notice } = await searchParams;
   const user = await requireUser();
   const companyId = user.companyId ?? "__none__";
+  const accountId = user.accountId ?? "__none__";
 
-  const company = await prisma.company.findUnique({ where: { id: companyId } });
-  const entitlements = await getCompanyEntitlements(companyId);
+  const [account, entitlements, businessCount] = await Promise.all([
+    prisma.account.findUnique({ where: { id: accountId } }),
+    getCompanyEntitlements(companyId),
+    countBusinesses(accountId),
+  ]);
 
   let paymentMethodSummary: string | null = null;
   let invoices: { id: string; date: Date; amount: number; status: string; url: string | null }[] = [];
   let stripeReadError = false;
 
-  if (company?.stripeCustomerId) {
+  if (account?.stripeCustomerId) {
     try {
       const stripe = getStripe();
       const [customer, invoiceList] = await Promise.all([
-        stripe.customers.retrieve(company.stripeCustomerId, {
+        stripe.customers.retrieve(account.stripeCustomerId, {
           expand: ["invoice_settings.default_payment_method"],
         }),
-        stripe.invoices.list({ customer: company.stripeCustomerId, limit: 12 }),
+        stripe.invoices.list({ customer: account.stripeCustomerId, limit: 12 }),
       ]);
       if (!("deleted" in customer) || !customer.deleted) {
         const pm = !("deleted" in customer) ? customer.invoice_settings?.default_payment_method : null;
@@ -76,7 +81,8 @@ export default async function BillingSettingsPage({
 
   const planId = entitlements.planId;
   const plan = planId ? PLANS[planId] : null;
-  const hasSubscription = !!company?.stripeSubscriptionId;
+  const hasSubscription = !!account?.stripeSubscriptionId;
+  const nextPlanUp = planId === "starter" ? "growth" : planId === "growth" ? "pro" : null;
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
@@ -170,8 +176,37 @@ export default async function BillingSettingsPage({
         </div>
       )}
 
+      {/* --- Businesses --- */}
+      {hasSubscription && plan && (
+        <div className="rounded-lg border border-line bg-surface p-5">
+          <p className="text-xs font-mono text-muted uppercase tracking-wide mb-1">Businesses</p>
+          <p className="font-display text-2xl mb-1">
+            {businessCount} / {entitlements.limits.maxBusinesses} used
+          </p>
+          <p className="text-sm text-muted mb-3">
+            Each business is a completely separate discovery configuration, opportunity feed, and AI context.
+          </p>
+          {businessCount >= entitlements.limits.maxBusinesses ? (
+            nextPlanUp ? (
+              <p className="text-sm">
+                Need another business?{" "}
+                <Link href={`/settings/billing#plans`} className="text-accent font-medium">
+                  Upgrade to {PLANS[nextPlanUp].name} → {PLANS[nextPlanUp].limits.maxBusinesses} businesses
+                </Link>
+              </p>
+            ) : (
+              <p className="text-sm text-muted">You're on the highest plan's business limit.</p>
+            )
+          ) : (
+            <Link href="/business/new" className="text-accent text-sm font-medium">
+              + Add a business →
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* --- Plan picker / upgrade-downgrade --- */}
-      <div>
+      <div id="plans">
         <h2 className="font-display text-lg mb-3">{hasSubscription ? "Change plan" : "Choose a plan"}</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {PLAN_ORDER.map((id) => (
@@ -211,7 +246,10 @@ function PlanOptionCard({ id, isCurrent, hasSubscription }: { id: PlanId; isCurr
   return (
     <div className={`rounded-lg border p-4 flex flex-col ${isCurrent ? "border-accent bg-accent/5" : "border-line bg-surface"}`}>
       <p className="font-display text-base">{plan.name}</p>
-      <p className="text-sm text-muted mb-3">${plan.priceUsd}/month</p>
+      <p className="text-sm text-muted mb-1">${plan.priceUsd}/month</p>
+      <p className="text-xs text-muted mb-3">
+        {plan.limits.maxBusinesses} business{plan.limits.maxBusinesses === 1 ? "" : "es"}
+      </p>
       {isCurrent ? (
         <span className="mt-auto text-xs font-medium text-accent">Current plan</span>
       ) : hasSubscription ? (
