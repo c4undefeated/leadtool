@@ -28,13 +28,14 @@ export function isAiConfigured(): boolean {
 }
 
 /**
- * IntentScout scans automatically once a day (see lib/dailyScan.ts) — the
- * production user never needs a manual "Run scan" button. The underlying
- * scanning code (runScanForCampaign, runScanAction, RunScanButton) is kept
- * fully intact for internal testing/debugging; this flag just controls
- * whether the campaign page renders that button at all. Off by default —
- * flip explicitly (e.g. in a local/dev env) to bring it back for testing.
+ * IntentScout scans automatically once a day (see lib/dailyScan.ts) — this
+ * flag only controls whether the campaign page ALSO renders a manual
+ * "Run scan" button (runScanAction -> runScanForCampaign, the exact same
+ * scan path the daily cron uses, just triggered on demand and bypassing
+ * the daily due-window for that one campaign). The daily cron's own
+ * due-window/locking (lib/dailyScan.ts) is untouched either way. On by
+ * default — set ENABLE_MANUAL_SCAN_UI="false" to hide it again.
  */
 export function isManualScanUiEnabled(): boolean {
-  return process.env.ENABLE_MANUAL_SCAN_UI === "true";
+  return process.env.ENABLE_MANUAL_SCAN_UI !== "false";
 }
