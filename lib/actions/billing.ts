@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getStripe } from "@/lib/stripe";
 import { ENTITLED_STATUSES, PLANS, TRIAL_DAYS, isPlanId, stripePriceIdForPlan, type PlanId } from "@/lib/billing/plans";
+import { getBetaSettings } from "@/lib/beta";
 
 export type BillingActionState = { error?: string } | undefined;
 
@@ -41,6 +42,19 @@ function planIdFromFormData(formData: FormData): PlanId {
 export async function startCheckoutAction(formData: FormData): Promise<void> {
   const planId = planIdFromFormData(formData);
   const { user, account } = await ownedAccountOrThrow();
+
+  // Beta Mode (spec: "IntentScout — Beta Mode / Controlled Manual
+  // Scanning" section 7): no new billing activity while beta testing is
+  // active. Checked server-side, before any Stripe API call — a direct
+  // POST to this action bypasses nothing, since hiding the button
+  // client-side was never the enforcement. Never touches an existing
+  // subscription (changePlanAction/cancelSubscriptionAction/
+  // reactivateSubscriptionAction are untouched) — only blocks starting a
+  // NEW one.
+  const betaSettings = await getBetaSettings();
+  if (betaSettings.enabled) {
+    redirect(`/settings/billing?notice=${encodeURIComponent("IntentScout is currently in beta. Paid subscriptions and free trials are temporarily unavailable.")}`);
+  }
 
   if (account.subscriptionStatus && ENTITLED_STATUSES.has(account.subscriptionStatus)) {
     redirect("/settings/billing?notice=already_subscribed");

@@ -78,6 +78,8 @@ model User {
   // Never checked by comparing email addresses anywhere in application
   // code — this column is the one and only authorization mechanism.
   role String @default("user")
+
+  betaScanUsage BetaScanUsage[]
 }
 
 /// A single business/workspace (spec: "Businesses belong to the
@@ -404,10 +406,60 @@ model ScanRun {
 
   notConfigured Boolean @default(false)
 
+  // --- Beta Mode (spec: "Beta Mode / Controlled Manual Scanning") ---
+  // Distinguishes a beta-triggered manual scan from the normal daily-cron
+  // scan using the exact same ScanRun row the engine already writes —
+  // deliberately not a separate ledger. "cron" covers every pre-existing
+  // scan and every scan triggered while Beta Mode is off; trigger is set by
+  // the caller of runScanForCampaign (lib/pipeline.ts), never inferred.
+  trigger           String  @default("cron") // "cron" | "beta_manual"
+  triggeredByUserId String? // set only for trigger = "beta_manual" — who clicked "Run scan"
+
   surfaceRuns       SearchSurfaceRun[]
   discoveryTermRuns DiscoveryTermRun[]
 
   @@index([campaignId, startedAt])
+  @@index([trigger, startedAt])
+}
+
+/// Singleton row (spec: "Beta Mode"). One admin-controlled DB setting
+/// gates both the daily cron's scanning behavior (lib/dailyScan.ts) and
+/// the manual "Run scan" UI/action (lib/actions/conversations.ts) — no
+/// environment variable, no redeploy required to flip it. Always read/
+/// written via the fixed id "singleton" (lib/beta.ts); the migration that
+/// creates this table also seeds that one row with the defaults below.
+model BetaSettings {
+  id                        String   @id
+  enabled                   Boolean  @default(false)
+  manualScansPerUserPerDay  Int      @default(2)
+  // Emergency stop distinct from `enabled`: turns off manual scanning
+  // immediately without also flipping billing/trial locks back on, for
+  // "something's wrong, stop spending provider budget right now" without
+  // fully exiting beta.
+  scanningPaused            Boolean  @default(false)
+  updatedAt                 DateTime @updatedAt
+  updatedByEmail            String?
+}
+
+/// Atomic per-user daily counter enforcing the beta manual-scan cap
+/// (spec section 4/5: server-side, race-free). One row per (userId, UTC
+/// day) — claimed via a single conditional `INSERT ... ON CONFLICT ...
+/// WHERE count < limit` statement (lib/beta.ts's claimBetaScanAllowance),
+/// the same "one atomic conditional write, no read-then-write window"
+/// pattern lib/dailyScan.ts's claimCampaignForScan already uses for
+/// campaign locking. Never read as the source of truth for anything
+/// except today's own count — the day rolls over naturally since a new
+/// day has no row yet.
+model BetaScanUsage {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day       DateTime // UTC-midnight-truncated calendar day this count applies to
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, day])
 }
 
 /// One query execution within one ScanRun. This is the actual answer to

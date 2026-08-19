@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import { runScanForCampaign, type IngestResult } from "@/lib/pipeline";
 import { isCompanyEligibleForScanning } from "@/lib/billing/entitlements";
+import { getBetaSettings } from "@/lib/beta";
 
 /**
  * The always-on daily scan orchestrator (spec: "IntentScout should behave
@@ -99,6 +100,8 @@ export type DailyScanSummary = {
   opportunitiesCreated: number;
   durationMs: number;
   results: DailyScanCampaignResult[];
+  /** true only when this invocation exited immediately because Beta Mode is on — see the top of runDailyScan(). Absent (not just false) on every normal run, so existing consumers of this type are unaffected. */
+  betaModeSkipped?: boolean;
 };
 
 /** Pure — no I/O — so it's directly unit-testable without a live database. */
@@ -174,6 +177,36 @@ async function releaseCampaignLock(campaignId: string, status: "completed" | "fa
 export async function runDailyScan(): Promise<DailyScanSummary> {
   const startedAt = Date.now();
   console.log("[DailyScan] started");
+
+  // Beta Mode (spec: "IntentScout — Beta Mode / Controlled Manual
+  // Scanning"): exits immediately, before touching a single campaign row,
+  // provider, or AI call, whenever an administrator has beta testing
+  // active — controlled scanning during beta happens only through the
+  // manual "Run scan" button (lib/actions/conversations.ts), never the
+  // automatic cron. This is the ONLY place the daily cron's own behavior
+  // changes for Beta Mode; everything below this check — due-checking,
+  // claiming, locking, concurrency, failure isolation — is completely
+  // untouched and behaves exactly as it always has whenever Beta Mode is
+  // off. No campaign's lastScanAt/lastScanStatus/scanLockedAt is touched
+  // here, so nothing about existing scan history or due-ness is disturbed
+  // by a skip — the moment Beta Mode turns back off, every campaign is
+  // exactly as due (or not) as it would have been anyway.
+  const betaSettings = await getBetaSettings();
+  if (betaSettings.enabled) {
+    console.log("[DailyScan] skipped: Beta Mode is active — automatic scanning is paused, manual scans only");
+    return {
+      campaignsFound: 0,
+      campaignsDue: 0,
+      campaignsScanned: 0,
+      campaignsSkipped: 0,
+      campaignsFailed: 0,
+      conversationsIngested: 0,
+      opportunitiesCreated: 0,
+      durationMs: Date.now() - startedAt,
+      results: [],
+      betaModeSkipped: true,
+    };
+  }
 
   // Manual-source campaigns have no adapter to run — never eligible for
   // the automated scan (unchanged from the prior cron route's own filter).

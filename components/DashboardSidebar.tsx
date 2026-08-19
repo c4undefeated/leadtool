@@ -37,6 +37,7 @@ const ADMIN_NAV_ITEMS = [
   { href: "/admin/cron", label: "Scan / Cron Monitor", icon: ClockIcon },
   { href: "/admin/metrics", label: "Engine Metrics", icon: ChartIcon },
   { href: "/admin/activity", label: "Activity / Logs", icon: ListIcon },
+  { href: "/admin/beta", label: "Beta Mode", icon: BetaIcon },
 ];
 
 export function DashboardSidebar({
@@ -295,6 +296,16 @@ function ChartIcon({ className }: IconProps) {
       <path d="M12 20V4" />
       <path d="M20 20v-7" />
       <line x1="2" y1="20" x2="22" y2="20" />
+    </svg>
+  );
+}
+
+function BetaIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M9 3h6" />
+      <path d="M10 3v6l-5.5 9.5A1 1 0 0 0 5.36 20h13.28a1 1 0 0 0 .86-1.5L14 9V3" />
+      <path d="M6.5 15h11" />
     </svg>
   );
 }

@@ -3,9 +3,24 @@
 import { useState, useTransition } from "react";
 import { runScanAction, type ScanBreakdown, type ScanState } from "@/lib/actions/conversations";
 
-export function RunScanButton({ campaignId, disabled, disabledReason }: { campaignId: string; disabled?: boolean; disabledReason?: string }) {
+export function RunScanButton({
+  campaignId,
+  disabled,
+  disabledReason,
+  initialRemaining,
+  initialLimit,
+}: {
+  campaignId: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  /** Beta Mode's manual-scan cap — only passed while Beta Mode is on (see the campaign page). */
+  initialRemaining?: number;
+  initialLimit?: number;
+}) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<ScanState>();
+  const remaining = message?.remaining ?? initialRemaining;
+  const limit = message?.limit ?? initialLimit;
 
   return (
     <div>
@@ -24,6 +39,11 @@ export function RunScanButton({ campaignId, disabled, disabledReason }: { campai
         {pending ? "Scanning…" : "Run scan"}
       </button>
       {disabled && disabledReason && <p className="text-xs text-muted mt-1">{disabledReason}</p>}
+      {remaining !== undefined && limit !== undefined && (
+        <p className="text-xs font-mono text-muted mt-1">
+          Manual scans remaining today: {remaining}/{limit}
+        </p>
+      )}
       {message?.error && <p className="text-sm text-risk mt-2">{message.error}</p>}
       {message?.result && <ScanSummaryBanner result={message.result} />}
     </div>
