@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { getAdminBetaOverview } from "@/lib/admin/beta";
-import { setBetaModeAction, setScanningPausedAction, setManualScanLimitAction, resetTodaysBetaCountersAction } from "@/lib/actions/beta";
+import { setBetaModeAction, setManualScanEnabledAction, setScanningPausedAction, setManualScanLimitAction, resetTodaysBetaCountersAction } from "@/lib/actions/beta";
 import { StatCard, StatCardRow, SectionCard, EmptyState, formatUsd, relativeOrNever } from "@/components/admin/AdminUI";
 
 const SCAN_LIMIT_OPTIONS = [1, 2, 3, 5, 10];
@@ -15,8 +15,10 @@ export default async function AdminBetaPage() {
       <div>
         <h1 className="font-display text-2xl mb-1">Beta Mode</h1>
         <p className="text-sm text-muted">
-          Controlled manual scanning for real beta testers. When ON, the daily cron skips scanning entirely and users
-          scan manually up to the daily limit below — no billing activity is allowed while beta is active.
+          Controlled manual scanning for real beta testers. Full Beta Mode (below) pauses the daily cron and locks
+          billing while manual scanning is on; the standalone Manual Scan toggle lets the "Run scan" button work by
+          itself, day to day, without touching cron or billing. Either way, manual scans stay capped by the daily
+          limit below.
         </p>
       </div>
 
@@ -43,6 +45,35 @@ export default async function AdminBetaPage() {
               }`}
             >
               Turn Beta Mode {settings.enabled ? "OFF" : "ON"}
+            </button>
+          </form>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Manual scan (standalone)">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-sm">
+              Manual scanning is currently{" "}
+              <span className={`font-medium ${settings.manualScanEnabled ? "text-good" : "text-muted"}`}>
+                {settings.manualScanEnabled ? "ON" : "OFF"}
+              </span>
+              {settings.enabled && !settings.manualScanEnabled && " (also on — Beta Mode is ON)"}.
+            </p>
+            <p className="text-xs text-muted mt-1">
+              Lets the "Run scan" button work on its own, without stopping the daily cron or locking billing — turn this
+              on for day-to-day scan testing without entering full Beta Mode. Still capped by the daily limit below.
+            </p>
+          </div>
+          <form action={setManualScanEnabledAction}>
+            <input type="hidden" name="manualScanEnabled" value={settings.manualScanEnabled ? "false" : "true"} />
+            <button
+              type="submit"
+              className={`rounded-md px-4 py-2 text-sm font-medium ${
+                settings.manualScanEnabled ? "border border-line text-ink hover:bg-paper" : "bg-accent text-white hover:opacity-90"
+              }`}
+            >
+              Turn manual scan {settings.manualScanEnabled ? "OFF" : "ON"}
             </button>
           </form>
         </div>
@@ -86,7 +117,8 @@ export default async function AdminBetaPage() {
         </div>
         {settings.scanningPaused && (
           <p className="text-xs text-caution mt-3">
-            Beta scanning is paused — manual scans are blocked even though Beta Mode is ON. Billing stays locked.
+            Beta scanning is paused — manual scans are blocked even though Beta Mode and/or manual scan are ON. Billing
+            stays locked if Beta Mode is ON.
           </p>
         )}
       </SectionCard>

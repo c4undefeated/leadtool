@@ -14,7 +14,7 @@
  *
  * Run with: npx tsx scripts/testBeta.ts
  */
-import { utcDayStart } from "@/lib/beta";
+import { utcDayStart, isManualScanAllowed } from "@/lib/beta";
 import { classifyScanStatus } from "@/lib/dailyScan";
 
 let pass = 0;
@@ -58,6 +58,12 @@ function main() {
   const a = utcDayStart(new Date("2026-08-19T00:00:00.000Z"));
   const b = utcDayStart(new Date("2026-08-19T23:59:59.000Z"));
   check("utcDayStart: is idempotent/stable across the whole day (same key for BetaScanUsage's unique constraint)", a.getTime() === b.getTime(), `${a.toISOString()} vs ${b.toISOString()}`);
+
+  // --- isManualScanAllowed: standalone toggle is independent of full Beta Mode ---
+  check("manual scan: both off -> not allowed", isManualScanAllowed({ enabled: false, manualScanEnabled: false }) === false, "expected false");
+  check("manual scan: full Beta Mode on, standalone off -> allowed", isManualScanAllowed({ enabled: true, manualScanEnabled: false }) === true, "expected true");
+  check("manual scan: standalone on, full Beta Mode off -> allowed (cron/billing untouched)", isManualScanAllowed({ enabled: false, manualScanEnabled: true }) === true, "expected true");
+  check("manual scan: both on -> allowed", isManualScanAllowed({ enabled: true, manualScanEnabled: true }) === true, "expected true");
 
   // --- runScanAction's refund decision reuses lib/dailyScan.ts's classifyScanStatus,
   // never a second definition of "did this scan actually run" ---

@@ -11,7 +11,7 @@ import {
 import { regenerateDiscoveryTermsAction } from "@/lib/actions/discovery";
 import { approveCommunityCandidateAction, rejectCommunityCandidateAction, regenerateCommunityCandidatesAction } from "@/lib/actions/communities";
 import { isAiConfigured } from "@/lib/sourceAvailability";
-import { getBetaSettings, getBetaUsageForUser } from "@/lib/beta";
+import { getBetaSettings, getBetaUsageForUser, isManualScanAllowed } from "@/lib/beta";
 import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTime, SCAN_STATUS_LABELS, describeNextScan } from "@/lib/format";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { RunScanButton } from "@/components/RunScanButton";
@@ -57,7 +57,8 @@ export default async function CampaignDetailPage({
   const health = await adapter.health();
   const aiReady = isAiConfigured();
   const betaSettings = await getBetaSettings();
-  const betaUsage = betaSettings.enabled ? await getBetaUsageForUser(user.id, betaSettings.manualScansPerUserPerDay) : null;
+  const manualScanAllowed = isManualScanAllowed(betaSettings);
+  const betaUsage = manualScanAllowed ? await getBetaUsageForUser(user.id, betaSettings.manualScansPerUserPerDay) : null;
   const disabledReason = scanDisabledReason({ sourceType: campaign.sourceType, aiReady, healthStatus: health.status });
   const vertical = campaign.company.offer ? getVerticalTemplate(campaign.company.offer.verticalTemplateKey) : null;
 
@@ -164,24 +165,24 @@ export default async function CampaignDetailPage({
           </p>
         )}
         {betaSettings.enabled && (
-          <>
-            <div className="mb-4 rounded-md bg-accent/5 border border-accent/30 px-4 py-3 text-sm">
-              <p className="text-ink font-medium">IntentScout is currently in beta testing mode.</p>
-              <p className="text-muted mt-1">
-                Automatic daily scanning is temporarily disabled. You have a limited number of manual scans available
-                each day while we test and improve the discovery engine.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-4">
-              <RunScanButton
-                campaignId={campaign.id}
-                disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady || (betaUsage?.remaining ?? 0) <= 0}
-                disabledReason={betaUsage && betaUsage.remaining <= 0 ? "You've used all your manual scans for today." : disabledReason}
-                initialRemaining={betaUsage?.remaining}
-                initialLimit={betaUsage?.limit}
-              />
-            </div>
-          </>
+          <div className="mb-4 rounded-md bg-accent/5 border border-accent/30 px-4 py-3 text-sm">
+            <p className="text-ink font-medium">IntentScout is currently in beta testing mode.</p>
+            <p className="text-muted mt-1">
+              Automatic daily scanning is temporarily disabled. You have a limited number of manual scans available
+              each day while we test and improve the discovery engine.
+            </p>
+          </div>
+        )}
+        {manualScanAllowed && (
+          <div className="flex flex-wrap items-center gap-4">
+            <RunScanButton
+              campaignId={campaign.id}
+              disabled={campaign.sourceType === "manual" || health.status !== "ok" || !aiReady || (betaUsage?.remaining ?? 0) <= 0}
+              disabledReason={betaUsage && betaUsage.remaining <= 0 ? "You've used all your manual scans for today." : disabledReason}
+              initialRemaining={betaUsage?.remaining}
+              initialLimit={betaUsage?.limit}
+            />
+          </div>
         )}
       </section>
 

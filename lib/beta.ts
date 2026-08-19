@@ -5,11 +5,20 @@ import { prisma } from "@/lib/prisma";
  * IntentScout Beta Mode / Controlled Manual Scanning.
  *
  * A single admin-controlled database row (BetaSettings, fixed id
- * "singleton") gates two things:
- *   - lib/dailyScan.ts's runDailyScan(): skips all scanning while enabled.
+ * "singleton") gates several things:
+ *   - lib/dailyScan.ts's runDailyScan(): skips all scanning while `enabled`.
+ *   - lib/actions/billing.ts's startCheckoutAction: blocks new
+ *     subscriptions/trials while `enabled`.
  *   - lib/actions/conversations.ts's runScanAction(): the manual "Run
- *     scan" button is only usable while enabled, and only up to
- *     manualScansPerUserPerDay times per user per day.
+ *     scan" button is only usable while isManualScanAllowed() is true
+ *     (either `enabled` OR the standalone `manualScanEnabled`), and only
+ *     up to manualScansPerUserPerDay times per user per day either way.
+ *
+ * `manualScanEnabled` exists separately from `enabled` so an admin can
+ * turn manual scanning on/off for day-to-day testing without also
+ * stopping the daily cron or locking billing for every customer — full
+ * Beta Mode (`enabled`) remains the "all three at once" switch for actual
+ * controlled beta testing.
  *
  * Deliberately a DB row, not an env var — flipping it takes effect
  * immediately for every request, no redeploy (spec section 15).
@@ -19,6 +28,7 @@ export const BETA_SETTINGS_ID = "singleton";
 
 export type BetaSettings = {
   enabled: boolean;
+  manualScanEnabled: boolean;
   manualScansPerUserPerDay: number;
   scanningPaused: boolean;
   updatedAt: Date;
@@ -28,6 +38,11 @@ export type BetaSettings = {
 /** The migration that creates BetaSettings also seeds this one row — always present, never lazily created. */
 export async function getBetaSettings(): Promise<BetaSettings> {
   return prisma.betaSettings.findUniqueOrThrow({ where: { id: BETA_SETTINGS_ID } });
+}
+
+/** Manual scanning is allowed whenever full Beta Mode is on OR the standalone toggle is on — either is sufficient. */
+export function isManualScanAllowed(settings: Pick<BetaSettings, "enabled" | "manualScanEnabled">): boolean {
+  return settings.enabled || settings.manualScanEnabled;
 }
 
 /** UTC-midnight-truncated calendar day — the app has no other established timezone convention (spec section 4). */

@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { normalizeManualSubmission } from "@/lib/sources/manualAdapter";
 import { runAnalysisForConversation, runScanForCampaign } from "@/lib/pipeline";
 import { isAiConfigured } from "@/lib/sourceAvailability";
-import { getBetaSettings, claimBetaScanAllowance, refundBetaScanAllowance } from "@/lib/beta";
+import { getBetaSettings, claimBetaScanAllowance, refundBetaScanAllowance, isManualScanAllowed } from "@/lib/beta";
 import { classifyScanStatus } from "@/lib/dailyScan";
 
 // Shown to customers when Scout's analysis engine isn't active for this
@@ -107,7 +107,7 @@ export async function runScanAction(campaignId: string): Promise<ScanState> {
   }
 
   const settings = await getBetaSettings();
-  if (!settings.enabled) {
+  if (!isManualScanAllowed(settings)) {
     return { error: "Manual scanning is currently unavailable." };
   }
   if (settings.scanningPaused) {
