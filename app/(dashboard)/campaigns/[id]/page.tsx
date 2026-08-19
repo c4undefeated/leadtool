@@ -293,7 +293,11 @@ export default async function CampaignDetailPage({
             {!isXCampaign && (
               <form action={regenerateCommunityCandidatesAction}>
                 <input type="hidden" name="campaignId" value={campaign.id} />
-                <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline p-2 -m-2">
+                <button
+                  type="submit"
+                  className="text-xs font-mono text-muted hover:text-ink underline p-2 -m-2"
+                  title="Runs in the background — new suggestions appear here in a bit, no need to wait on this page."
+                >
                   Refresh suggestions
                 </button>
               </form>

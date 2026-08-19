@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import * as redditapis from "@/lib/providers/redditapis/service";
@@ -523,12 +524,22 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   // the production audit" — a campaign with zero manually-configured
   // communities got zero community-scoped retrieval). Generates/validates
   // AI-suggested subreddits from the campaign's own Offer, same lazy
-  // staleness pattern as ensureDiscoveryTerms above. Deliberately does NOT
-  // touch `singleCommunity` below — a campaign that manually configured
-  // exactly one community made an explicit, deliberate scoping choice that
-  // must stay exactly as-is; AI-suggested communities only ever add to the
-  // bonus-rotation layer (bonusCommunities, further down), never override it.
-  await ensureCommunityCandidates(params.campaignId);
+  // staleness pattern as ensureDiscoveryTerms above — EXCEPT scheduled via
+  // after() rather than awaited: unlike a discovery-term regeneration
+  // (bounded to one Gemini call), a community regeneration can chain a
+  // Gemini call with up to MAX_COMMUNITY_CANDIDATES_TO_VALIDATE real
+  // provider validation calls, real latency this scan's own response
+  // shouldn't block on (a live-verified first-scan case exceeded Vercel's
+  // function time limit before this fix). This scan uses whatever active
+  // candidates already exist (none, the first time); a newly-generated or
+  // refreshed pool is ready for the NEXT scan, exactly like discovery-term
+  // generation already defers via after() in lib/actions/onboarding.ts.
+  // Deliberately does NOT touch `singleCommunity` below — a campaign that
+  // manually configured exactly one community made an explicit, deliberate
+  // scoping choice that must stay exactly as-is; AI-suggested communities
+  // only ever add to the bonus-rotation layer (bonusCommunities, further
+  // down), never override it.
+  after(() => ensureCommunityCandidates(params.campaignId).catch((err) => console.error(`[searchOrchestrator] community candidate generation failed for campaign ${params.campaignId}:`, err)));
   const aiCommunities = await prisma.communityCandidate.findMany({
     where: { campaignId: params.campaignId, status: "active" },
     select: { name: true },
