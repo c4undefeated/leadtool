@@ -36,6 +36,7 @@ const ADMIN_NAV_ITEMS = [
   { href: "/admin/health", label: "System Health", icon: PulseIcon },
   { href: "/admin/cron", label: "Scan / Cron Monitor", icon: ClockIcon },
   { href: "/admin/metrics", label: "Engine Metrics", icon: ChartIcon },
+  { href: "/admin/retrieval", label: "Retrieval Coverage", icon: RetrievalIcon },
   { href: "/admin/activity", label: "Activity / Logs", icon: ListIcon },
   { href: "/admin/beta", label: "Beta Mode", icon: BetaIcon },
 ];
@@ -296,6 +297,16 @@ function ChartIcon({ className }: IconProps) {
       <path d="M12 20V4" />
       <path d="M20 20v-7" />
       <line x1="2" y1="20" x2="22" y2="20" />
+    </svg>
+  );
+}
+
+function RetrievalIcon({ className }: IconProps) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="10" cy="10" r="6" />
+      <path d="M15 15l5 5" />
+      <circle cx="10" cy="10" r="2" fill="currentColor" stroke="none" />
     </svg>
   );
 }

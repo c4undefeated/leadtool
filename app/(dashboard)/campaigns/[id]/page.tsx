@@ -9,6 +9,7 @@ import {
   updateExclusionsAction,
 } from "@/lib/actions/campaigns";
 import { regenerateDiscoveryTermsAction } from "@/lib/actions/discovery";
+import { approveCommunityCandidateAction, rejectCommunityCandidateAction, regenerateCommunityCandidatesAction } from "@/lib/actions/communities";
 import { isAiConfigured } from "@/lib/sourceAvailability";
 import { getBetaSettings, getBetaUsageForUser } from "@/lib/beta";
 import { scanDisabledReason, sourceLabel, DISCOVERY_CATEGORY_LABELS, relativeTime, SCAN_STATUS_LABELS, describeNextScan } from "@/lib/format";
@@ -43,6 +44,7 @@ export default async function CampaignDetailPage({
       discoveryTerms: { where: { active: true } },
       xDiscoveryPhrases: { where: { active: true } },
       scanRuns: { orderBy: { startedAt: "desc" }, take: 5 },
+      communityCandidates: { where: { status: { in: ["active", "suggested"] } }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!campaign) notFound();
@@ -88,6 +90,13 @@ export default async function CampaignDetailPage({
     .sort((a, b) => b.opportunitiesFound - a.opportunitiesFound)
     .slice(0, 6);
   const untested = discoveryPool.filter((t) => t.timesUsed === 0);
+
+  // Intelligent Retrieval Assistance (spec: "Show users what Scout is
+  // doing") — AI-suggested communities, split into what's actively
+  // scoping retrieval vs. what's awaiting a decision. Reddit-only: X has
+  // no subreddit-equivalent concept (see lib/sources/communityDiscovery.ts).
+  const activeCommunities = campaign.communityCandidates.filter((c) => c.status === "active");
+  const suggestedCommunities = campaign.communityCandidates.filter((c) => c.status === "suggested");
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -272,6 +281,99 @@ export default async function CampaignDetailPage({
                   );
                 })}
               </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {campaign.sourceType !== "manual" && (
+        <section className="rounded-lg border border-line bg-surface p-5">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <h2 className="font-medium text-sm">Scout's retrieval strategy</h2>
+            {!isXCampaign && (
+              <form action={regenerateCommunityCandidatesAction}>
+                <input type="hidden" name="campaignId" value={campaign.id} />
+                <button type="submit" className="text-xs font-mono text-muted hover:text-ink underline p-2 -m-2">
+                  Refresh suggestions
+                </button>
+              </form>
+            )}
+          </div>
+
+          {isXCampaign ? (
+            <p className="text-sm text-muted">
+              X has no subreddit-equivalent community to scope — Scout's retrieval strategy here is the discovery
+              phrase pool above, rotated across a broad conversational search. No separate configuration needed.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-muted mb-4">
+                Every scan searches Reddit globally first, for maximum reach. Scout also reads your offer profile
+                and automatically identifies specific communities worth searching directly, on top of the global
+                search — you don't need to already know where your prospects hang out.
+              </p>
+
+              <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">Retrieval surfaces</p>
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex items-center justify-between rounded-md border border-line px-3 py-1.5 text-sm">
+                  <span>Global Reddit search</span>
+                  <span className="pill pill-good">always on</span>
+                </div>
+                {communities.map((k) => (
+                  <div key={k.id} className="flex items-center justify-between rounded-md border border-line px-3 py-1.5 text-sm">
+                    <span>r/{k.term}</span>
+                    <span className="pill pill-neutral" title="You configured this community manually.">
+                      manual
+                    </span>
+                  </div>
+                ))}
+                {activeCommunities.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-1.5 text-sm" title={c.reasoning}>
+                    <span className="truncate">r/{c.name}</span>
+                    <span className="pill pill-good shrink-0">Scout-selected</span>
+                  </div>
+                ))}
+                {communities.length === 0 && activeCommunities.length === 0 && (
+                  <p className="text-sm text-muted">
+                    No targeted communities active yet — Scout generates suggestions automatically once your offer
+                    profile is complete. Global search keeps running in the meantime.
+                  </p>
+                )}
+              </div>
+
+              {suggestedCommunities.length > 0 && (
+                <>
+                  <p className="text-xs uppercase tracking-widest text-muted font-mono mb-2">
+                    Suggested communities — awaiting your review
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {suggestedCommunities.map((c) => (
+                      <div key={c.id} className="rounded-md border border-line px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-3 mb-1">
+                          <span className="font-medium">r/{c.name}</span>
+                          <div className="flex gap-2 shrink-0">
+                            <form action={approveCommunityCandidateAction}>
+                              <input type="hidden" name="campaignId" value={campaign.id} />
+                              <input type="hidden" name="candidateId" value={c.id} />
+                              <button type="submit" className="text-xs font-mono text-good hover:underline p-1 -m-1">
+                                Approve
+                              </button>
+                            </form>
+                            <form action={rejectCommunityCandidateAction}>
+                              <input type="hidden" name="campaignId" value={campaign.id} />
+                              <input type="hidden" name="candidateId" value={c.id} />
+                              <button type="submit" className="text-xs font-mono text-muted hover:text-risk hover:underline p-1 -m-1">
+                                Reject
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted">{c.reasoning}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </section>

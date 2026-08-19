@@ -6,6 +6,7 @@ import { ESTIMATED_GEMINI_COST_PER_ANALYSIS_USD } from "@/lib/ai/client";
 import { priorityTierFromMatchScore } from "@/lib/ai/schemas";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import { creditOpportunityToTerms } from "@/lib/sources/searchOrchestrator";
+import { creditCommunityOpportunity } from "@/lib/sources/communityDiscovery";
 import { Prisma, type Offer } from "@prisma/client";
 
 export { mapWithConcurrency };
@@ -229,6 +230,15 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
       console.error(`[runAnalysisForConversation] failed to parse foundByTerms for conversation ${conversation.id}:`, err);
     }
   }
+
+  // Intelligent Retrieval Assistance (lib/sources/communityDiscovery.ts):
+  // credits this genuine opportunity to whichever AI-suggested community
+  // it came from, if any — independent of the foundByTerms attribution
+  // above, since conversation.community is already written at ingestion
+  // time regardless of which discovery layer found the post.
+  await creditCommunityOpportunity(conversation.campaignId, conversation.community).catch((err) =>
+    console.error(`[runAnalysisForConversation] community credit failed for conversation ${conversation.id}:`, err),
+  );
 
   return opportunity;
 }

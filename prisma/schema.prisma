@@ -142,6 +142,7 @@ model Campaign {
   searchSurfaces    SearchSurface[]
   discoveryTerms    DiscoveryTerm[]
   xDiscoveryPhrases XDiscoveryPhrase[]
+  communityCandidates CommunityCandidate[]
   scanRuns          ScanRun[]
   createdAt         DateTime           @default(now())
   lastScanAt        DateTime? // set whenever a scan actually runs (manual or scheduled) — never fabricated
@@ -318,6 +319,58 @@ model XDiscoveryPhrase {
   updatedAt DateTime @updatedAt
 
   @@index([campaignId, active])
+}
+
+/// AI-suggested Reddit retrieval surface (spec: "Intelligent Retrieval
+/// Assistance") — a candidate subreddit generated from the campaign's own
+/// Offer, the same way DiscoveryTerm is, so a business that never manually
+/// configures a single community (the exact gap the production audit
+/// found) still gets community-scoped retrieval. Deliberately its own
+/// model rather than reusing Keyword: a Keyword row has no room for a
+/// relevance/confidence tier, a user-facing reason, an approval lifecycle,
+/// or rotation-yield stats without overloading that model's simple
+/// (campaignId, term, type) shape. Shares DiscoveryTerm's exact rotation-
+/// stat fields (priority/timesUsed/lastUsedAt/candidatesFound/
+/// opportunitiesFound) so lib/sources/searchOrchestrator.ts's existing
+/// rankCandidates() works on it unmodified if ever needed — not currently
+/// used for bonus-batch SELECTION (that stays buildCommunityBonusJobs's
+/// existing deterministic day-rotation, untouched, applied to manual
+/// Keyword communities and active CommunityCandidate names alike), only
+/// for admin-facing yield visibility and the auto-pause-on-zero-yield rule
+/// (lib/sources/communityDiscovery.ts).
+model CommunityCandidate {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name       String // subreddit name, no "r/" prefix — same convention as Keyword(type: "subreddit")
+
+  // suggested (needs customer approval) | active (in rotation) | rejected
+  // (customer declined) | invalid (failed existence validation, never
+  // shown or rotated) | paused (was active, auto-demoted after repeated
+  // zero yield — see lib/sources/communityDiscovery.ts)
+  status String @default("suggested")
+
+  priority  String // high | medium | low — Gemini's own confidence; high+valid auto-activates, medium/low need approval (spec section 5)
+  reasoning String // short, user-facing "why Scout selected this" — never raw model/prompt internals
+  // JSON-stringified string[] of DiscoveryTerm category names (e.g.
+  // ["problem","recommendation_language"]) this pick is grounded in —
+  // display-only, feeds the "discovery concepts associated" UI (spec
+  // section 12). Null for candidates generated before this field existed.
+  relatedConcepts String?
+  promptVersion   String // COMMUNITY_DISCOVERY_PROMPT_VERSION this candidate was generated under
+
+  verifiedAt DateTime? // when existence was last confirmed against the provider — null if never successfully validated
+
+  timesUsed          Int       @default(0)
+  lastUsedAt         DateTime?
+  candidatesFound    Int       @default(0)
+  opportunitiesFound Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, name])
+  @@index([campaignId, status])
 }
 
 /// One discovery-layer provider call within a scan — the term-level

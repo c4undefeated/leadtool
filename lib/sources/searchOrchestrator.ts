@@ -6,6 +6,7 @@ import * as twitterapis from "@/lib/providers/twitterapis/service";
 import { TwitterApisBudgetExceededError, type Tweet } from "@/lib/providers/twitterapis/service";
 import { generateDiscoveryTerms, hashOfferForDiscovery, DISCOVERY_PROMPT_VERSION } from "@/lib/ai/discovery";
 import { generateXPhrases, X_PHRASE_PROMPT_VERSION } from "@/lib/ai/xPhrases";
+import { ensureCommunityCandidates, updateCommunityStatsFromScan } from "./communityDiscovery";
 import type { DiscoveryTerm, XDiscoveryPhrase, Offer } from "@prisma/client";
 
 /**
@@ -518,6 +519,20 @@ export async function forceRegenerateXPhrases(campaignId: string): Promise<void>
  */
 export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryResult> {
   await ensureDiscoveryTerms(params.campaignId);
+  // Intelligent Retrieval Assistance (spec: "closes the gap identified by
+  // the production audit" — a campaign with zero manually-configured
+  // communities got zero community-scoped retrieval). Generates/validates
+  // AI-suggested subreddits from the campaign's own Offer, same lazy
+  // staleness pattern as ensureDiscoveryTerms above. Deliberately does NOT
+  // touch `singleCommunity` below — a campaign that manually configured
+  // exactly one community made an explicit, deliberate scoping choice that
+  // must stay exactly as-is; AI-suggested communities only ever add to the
+  // bonus-rotation layer (bonusCommunities, further down), never override it.
+  await ensureCommunityCandidates(params.campaignId);
+  const aiCommunities = await prisma.communityCandidate.findMany({
+    where: { campaignId: params.campaignId, status: "active" },
+    select: { name: true },
+  });
 
   const precisionQuery = buildBaselineQuery(params.keywords, params.topics);
   // Precision-layer attribution refs — the campaign's own keyword/topic
@@ -555,7 +570,14 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
   for (const b of batches) jobs.push({ kind: "discovery", termIds: b.termIds, termTexts: b.termTexts, query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT, subreddit: singleCommunity });
 
   const bestQueryForCommunityBonus = precisionQuery || batches[0]?.query || "";
-  const bonusJobs = buildCommunityBonusJobs(params.communities, bestQueryForCommunityBonus, MAX_COMMUNITY_BONUS_BATCHES, Date.now());
+  // Global discovery + AI-selected targeted community discovery, not one
+  // instead of the other (spec section 6): the campaign's own manually
+  // configured communities are unioned with active AI-suggested ones for
+  // the bonus-rotation pool only — buildCommunityBonusJobs itself, and the
+  // MAX_COMMUNITY_BONUS_BATCHES cap it already respects, are completely
+  // unmodified.
+  const bonusCommunities = [...new Set([...params.communities, ...aiCommunities.map((c) => c.name)])];
+  const bonusJobs = buildCommunityBonusJobs(bonusCommunities, bestQueryForCommunityBonus, MAX_COMMUNITY_BONUS_BATCHES, Date.now());
   for (const b of bonusJobs) {
     jobs.push({ kind: "community", termIds: [], termTexts: [], query: b.query, limit: DISCOVERY_BATCH_FETCH_LIMIT, subreddit: b.subreddit });
   }
@@ -745,6 +767,11 @@ export async function runDiscovery(params: DiscoveryParams): Promise<DiscoveryRe
       console.error(`[searchOrchestrator] discovery term stats update failed for campaign ${params.campaignId}:`, err);
     }
   }
+
+  // CommunityCandidate stats — a fully independent block from the
+  // DiscoveryTerm update above, so it can never affect that existing,
+  // already-tested logic. See lib/sources/communityDiscovery.ts.
+  await updateCommunityStatsFromScan(params.campaignId, batchesRun);
 
   return {
     posts: Array.from(byId.values()),

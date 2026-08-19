@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { getVerticalTemplate } from "@/lib/verticals";
 import { defaultSourceType } from "@/lib/sourceAvailability";
 import { ensureDiscoveryTerms } from "@/lib/sources/searchOrchestrator";
+import { ensureCommunityCandidates } from "@/lib/sources/communityDiscovery";
 
 export type OnboardingFormState = { error?: string } | undefined;
 
@@ -98,7 +99,12 @@ export async function completeOnboardingAction(
   // generated yet" state covers the brief window before it finishes.
   if (isNewCampaign && campaignId) {
     const idForAfter = campaignId;
-    after(() => ensureDiscoveryTerms(idForAfter).catch((err) => console.error(`[completeOnboardingAction] discovery generation failed for campaign ${idForAfter}:`, err)));
+    after(() =>
+      Promise.all([
+        ensureDiscoveryTerms(idForAfter),
+        ensureCommunityCandidates(idForAfter),
+      ]).catch((err) => console.error(`[completeOnboardingAction] discovery generation failed for campaign ${idForAfter}:`, err)),
+    );
   }
 
   redirect(`/campaigns/${campaignId}`);

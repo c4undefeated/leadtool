@@ -314,3 +314,63 @@ export const xPhraseResponseSchema: Schema = {
   },
   required: ["phrases"],
 };
+
+export const COMMUNITY_DISCOVERY_PROMPT_VERSION = "community-discovery-v1-gemini";
+
+/**
+ * AI-suggested Reddit retrieval surfaces (spec: "Intelligent Retrieval
+ * Assistance") — candidate subreddits generated from a business's Offer,
+ * the same lazy per-campaign generation pattern as DiscoveryTerm/
+ * XDiscoveryPhrase (see lib/ai/communityDiscovery.ts). `reasoning` is
+ * shown directly to the customer (campaign page, opportunity detail page)
+ * — must stay a short, plain-English sentence, never raw model/prompt
+ * internals. `relatedConcepts` ties a suggestion back to which
+ * DISCOVERY_TERM_CATEGORIES it's grounded in, for the "discovery concepts
+ * associated with this surface" UI.
+ */
+export const communityCandidateSchema = z.object({
+  name: z.string().min(1).max(30),
+  priority: z.enum(DISCOVERY_TERM_PRIORITIES),
+  reasoning: z.string().min(1).max(240),
+  relatedConcepts: z.array(z.enum(DISCOVERY_TERM_CATEGORIES)).max(6),
+});
+
+export const communityCandidateResultSchema = z.object({
+  communities: z.array(communityCandidateSchema).min(0).max(60),
+});
+
+export type CommunityCandidateResult = z.infer<typeof communityCandidateResultSchema>;
+
+export const communityCandidateResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    communities: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: {
+            type: Type.STRING,
+            description: "A real, plausible subreddit name with NO \"r/\" prefix (e.g. \"smallbusiness\", not \"r/smallbusiness\") — must follow real Reddit naming conventions (letters/numbers/underscores only). Never invent a name that couldn't plausibly be a real, already-existing subreddit.",
+          },
+          priority: {
+            type: Type.STRING,
+            enum: [...DISCOVERY_TERM_PRIORITIES],
+            description: "Your own confidence this specific community is where this business's real prospects actually participate — high/medium/low.",
+          },
+          reasoning: {
+            type: Type.STRING,
+            description: "One short, plain-English sentence a business owner would understand, e.g. \"Members frequently discuss this exact problem and ask for recommendations.\" Never mention prompts, models, or internal reasoning.",
+          },
+          relatedConcepts: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING, enum: [...DISCOVERY_TERM_CATEGORIES] },
+            description: "Up to a few discovery-concept categories (from the fixed 13-category list) this suggestion is grounded in — e.g. [\"problem\", \"recommendation_language\"].",
+          },
+        },
+        required: ["name", "priority", "reasoning", "relatedConcepts"],
+      },
+    },
+  },
+  required: ["communities"],
+};
