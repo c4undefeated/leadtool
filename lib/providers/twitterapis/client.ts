@@ -29,6 +29,15 @@
 
 const BASE_URL = "https://api.twitterapis.com";
 
+// Same fix as lib/providers/redditapis/client.ts's REQUEST_TIMEOUT_MS —
+// mirrors that file by design (see the doc comment above). Without a
+// bound, a provider-side hang (not just an error response) blocks until
+// Vercel's own 60s platform timeout kills the entire scan, discarding
+// every job's results instead of the existing per-job error isolation
+// (searchOrchestrator.ts's mapWithConcurrency try/catch) ever getting a
+// chance to catch it and move on.
+const REQUEST_TIMEOUT_MS = Number(process.env.TWITTERAPIS_REQUEST_TIMEOUT_MS) || 15_000;
+
 export class TwitterApisNotConfiguredError extends Error {
   constructor() {
     super("TWITTER_API_KEY is not set — TwitterAPIs ingestion is disabled.");
@@ -71,10 +80,12 @@ async function get<T>(path: string, params: Record<string, string | number | boo
   try {
     res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
     // Never include the Authorization header or apiKey value in any thrown message.
-    throw new TwitterApisRequestError(0, err instanceof Error ? `Network error: ${err.message}` : "Network error.");
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new TwitterApisRequestError(0, timedOut ? `Request timed out after ${REQUEST_TIMEOUT_MS}ms.` : err instanceof Error ? `Network error: ${err.message}` : "Network error.");
   }
 
   if (!res.ok) {

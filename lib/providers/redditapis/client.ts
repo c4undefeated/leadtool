@@ -24,6 +24,20 @@
 
 const BASE_URL = "https://api.redditapis.com";
 
+// A provider-side capacity issue ("pool_saturated" 503s, live-observed
+// against the real account) doesn't always fail fast — some requests hang
+// with no response at all rather than erroring. Without a bound here, a
+// hung connection blocks until Vercel's own platform-level function
+// timeout (60s) kills the whole scan, discarding every job's results,
+// including ones that already succeeded — instead of the existing
+// per-job error isolation (searchOrchestrator.ts's mapWithConcurrency
+// try/catch) ever getting a chance to catch it and move on. 15s is
+// generous relative to this deployment's own live-measured normal
+// response times (sub-second to a few seconds per the comments
+// throughout lib/sources/searchOrchestrator.ts) while still leaving
+// room for multiple concurrent batches within the 60s ceiling.
+const REQUEST_TIMEOUT_MS = Number(process.env.REDDITAPIS_REQUEST_TIMEOUT_MS) || 15_000;
+
 export class RedditapisNotConfiguredError extends Error {
   constructor() {
     super("REDDITAPIS_API_KEY is not set — Redditapis ingestion is disabled.");
@@ -67,10 +81,15 @@ async function get<T>(path: string, params: Record<string, string | number | boo
   try {
     res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
     // Never include the Authorization header or apiKey value in any thrown message.
-    throw new RedditapisRequestError(0, err instanceof Error ? `Network error: ${err.message}` : "Network error.");
+    // AbortSignal.timeout() rejects with a DOMException named "TimeoutError" —
+    // caught here like any other network failure, so it flows into the exact
+    // same per-job error isolation every other request failure already does.
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new RedditapisRequestError(0, timedOut ? `Request timed out after ${REQUEST_TIMEOUT_MS}ms.` : err instanceof Error ? `Network error: ${err.message}` : "Network error.");
   }
 
   if (!res.ok) {
