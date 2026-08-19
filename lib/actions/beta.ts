@@ -14,6 +14,14 @@ export async function setBetaModeAction(formData: FormData): Promise<void> {
   revalidatePath("/admin/beta");
 }
 
+/** Standalone manual-scan toggle — independent of full Beta Mode, see lib/beta.ts's isManualScanAllowed. */
+export async function setManualScanEnabledAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const manualScanEnabled = formData.get("manualScanEnabled") === "true";
+  await prisma.betaSettings.update({ where: { id: BETA_SETTINGS_ID }, data: { manualScanEnabled, updatedByEmail: admin.email } });
+  revalidatePath("/admin/beta");
+}
+
 export async function setScanningPausedAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const paused = formData.get("paused") === "true";

@@ -485,6 +485,15 @@ model BetaSettings {
   id                        String   @id
   enabled                   Boolean  @default(false)
   manualScansPerUserPerDay  Int      @default(2)
+  // Standalone manual-scan toggle, independent of `enabled` — lets an
+  // admin turn the "Run scan" button on/off by itself without also
+  // stopping the daily cron or locking billing (both still gated purely
+  // by `enabled`). Manual scanning is allowed when EITHER this OR
+  // `enabled` is true — see lib/beta.ts's isManualScanAllowed. Exists
+  // because full Beta Mode bundles three unrelated production effects
+  // (cron off, manual scan on, billing locked) that an admin doing
+  // day-to-day scan testing doesn't want to toggle all at once every time.
+  manualScanEnabled         Boolean  @default(false)
   // Emergency stop distinct from `enabled`: turns off manual scanning
   // immediately without also flipping billing/trial locks back on, for
   // "something's wrong, stop spending provider budget right now" without
