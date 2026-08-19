@@ -110,7 +110,23 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
   }
   const yourKeywordsShown = dedupAndCap(yourKeywords);
   const aiDiscoveryShown = dedupAndCap(aiDiscovery);
-  const hasProvenance = yourKeywordsShown.shown.length > 0 || aiDiscoveryShown.shown.length > 0;
+
+  // Intelligent Retrieval Assistance (spec: "extend the existing
+  // attribution system, don't replace it") — conversation.community
+  // ("r/foo") is already written at ingestion time regardless of which
+  // discovery layer found the post, so this needs no new attribution
+  // wiring. Only shown when it's specifically an AI-suggested surface (has
+  // a reasoning string on file) — a plain manually-configured community
+  // adds no new information beyond what's already visible at the top of
+  // this page.
+  const retrievalSurface = conversation.community?.startsWith("r/")
+    ? await prisma.communityCandidate.findFirst({
+        where: { campaignId: conversation.campaignId, name: conversation.community.slice(2) },
+        select: { name: true, reasoning: true },
+      })
+    : null;
+
+  const hasProvenance = yourKeywordsShown.shown.length > 0 || aiDiscoveryShown.shown.length > 0 || !!retrievalSurface;
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
@@ -190,6 +206,15 @@ export default async function OpportunityDetailPage({ params }: { params: Promis
                   </span>
                 ))}
                 {aiDiscoveryShown.more > 0 && <span className="text-muted">+{aiDiscoveryShown.more} more</span>}
+              </div>
+            )}
+            {retrievalSurface && (
+              <div className="flex flex-wrap items-start gap-2">
+                <span className="text-muted shrink-0">Retrieval surface:</span>
+                <span>
+                  <span className="pill pill-neutral">r/{retrievalSurface.name}</span>
+                  <span className="block text-muted mt-1">{retrievalSurface.reasoning}</span>
+                </span>
               </div>
             )}
           </div>
