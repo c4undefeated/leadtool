@@ -27,15 +27,9 @@ export function isAiConfigured(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
 }
 
-/**
- * IntentScout scans automatically once a day (see lib/dailyScan.ts) — this
- * flag only controls whether the campaign page ALSO renders a manual
- * "Run scan" button (runScanAction -> runScanForCampaign, the exact same
- * scan path the daily cron uses, just triggered on demand and bypassing
- * the daily due-window for that one campaign). The daily cron's own
- * due-window/locking (lib/dailyScan.ts) is untouched either way. On by
- * default — set ENABLE_MANUAL_SCAN_UI="false" to hide it again.
- */
-export function isManualScanUiEnabled(): boolean {
-  return process.env.ENABLE_MANUAL_SCAN_UI !== "false";
-}
+// Manual "Run scan" UI visibility used to be its own env-var flag here.
+// It's now entirely driven by Beta Mode (lib/beta.ts's getBetaSettings) —
+// see app/(dashboard)/campaigns/[id]/page.tsx, which reads it directly —
+// so IntentScout scans automatically once a day for every normal
+// (non-beta) account, with no manual button, exactly as before Beta Mode
+// existed.

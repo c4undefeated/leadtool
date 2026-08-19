@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { PricingTable } from "@/components/PricingTable";
+import { getBetaSettings } from "@/lib/beta";
 
 export default async function PricingPage() {
-  const user = await getCurrentUser();
+  const [user, betaSettings] = await Promise.all([getCurrentUser(), getBetaSettings()]);
   const authenticated = !!user?.companyId;
 
   return (
@@ -42,7 +43,14 @@ export default async function PricingPage() {
           </p>
         </div>
 
-        <PricingTable authenticated={authenticated} />
+        {betaSettings.enabled && (
+          <div className="max-w-3xl mx-auto mb-8 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-center">
+            <span className="font-medium text-ink">Beta Mode — Billing Temporarily Unavailable.</span>{" "}
+            <span className="text-muted">IntentScout is currently in beta. Paid subscriptions and free trials are temporarily unavailable.</span>
+          </div>
+        )}
+
+        <PricingTable authenticated={authenticated} betaLocked={betaSettings.enabled} />
 
         <div className="max-w-3xl mx-auto mt-16 text-center text-sm text-muted">
           <p>

@@ -233,13 +233,26 @@ export async function runAnalysisForConversation(conversationId: string, offer: 
   return opportunity;
 }
 
+export type ScanTrigger = "cron" | "beta_manual";
+
 /**
  * Full scan for a campaign: search the campaign's configured source,
  * ingest new conversations, analyze each one. Manual-source campaigns have
  * nothing to search — conversations arrive one at a time via the import
  * action instead, which calls runAnalysisForConversation directly.
+ *
+ * `trigger`/`triggeredByUserId` are stamped onto the ScanRun row this
+ * function already creates below — purely for admin-facing attribution
+ * (Beta Mode metrics, lib/admin/beta.ts). They change nothing about how
+ * the scan itself runs: same adapter, same discovery pool, same AI
+ * analysis, same scoring, same dedup. Every existing caller (the daily
+ * cron) omits this and gets the same "cron" default it always implicitly
+ * was.
  */
-export async function runScanForCampaign(campaignId: string): Promise<IngestResult> {
+export async function runScanForCampaign(
+  campaignId: string,
+  options?: { trigger?: ScanTrigger; triggeredByUserId?: string },
+): Promise<IngestResult> {
   const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id: campaignId },
     include: { keywords: true, company: { include: { offer: true } } },
@@ -295,7 +308,14 @@ export async function runScanForCampaign(campaignId: string): Promise<IngestResu
   // its id can be threaded through to the orchestrator, which writes
   // SearchSurfaceRun rows against it as each query executes.
   const scanStartedAt = new Date();
-  const scanRun = await prisma.scanRun.create({ data: { campaignId: campaign.id, startedAt: scanStartedAt } });
+  const scanRun = await prisma.scanRun.create({
+    data: {
+      campaignId: campaign.id,
+      startedAt: scanStartedAt,
+      trigger: options?.trigger ?? "cron",
+      triggeredByUserId: options?.triggeredByUserId ?? null,
+    },
+  });
 
   let conversations: NormalizedConversation[] = [];
   try {

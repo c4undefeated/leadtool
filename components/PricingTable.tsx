@@ -12,7 +12,7 @@ import { startCheckoutAction } from "@/lib/actions/billing";
  * anonymous visitor goes to signup first, carrying the chosen plan through
  * so it's preselected once they reach billing.
  */
-export function PricingTable({ authenticated }: { authenticated: boolean }) {
+export function PricingTable({ authenticated, betaLocked = false }: { authenticated: boolean; betaLocked?: boolean }) {
   return (
     <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
       {PLAN_ORDER.map((id) => {
@@ -43,7 +43,7 @@ export function PricingTable({ authenticated }: { authenticated: boolean }) {
                 </li>
               ))}
             </ul>
-            <PlanCta planId={id} mostPopular={!!plan.mostPopular} authenticated={authenticated} />
+            <PlanCta planId={id} mostPopular={!!plan.mostPopular} authenticated={authenticated} betaLocked={betaLocked} />
           </div>
         );
       })}
@@ -51,10 +51,21 @@ export function PricingTable({ authenticated }: { authenticated: boolean }) {
   );
 }
 
-function PlanCta({ planId, mostPopular, authenticated }: { planId: PlanId; mostPopular: boolean; authenticated: boolean }) {
+function PlanCta({ planId, mostPopular, authenticated, betaLocked }: { planId: PlanId; mostPopular: boolean; authenticated: boolean; betaLocked: boolean }) {
   const className = `mt-6 block w-full text-center rounded-md px-4 py-2.5 text-sm font-medium transition ${
     mostPopular ? "bg-accent text-white hover:opacity-90" : "border border-line text-ink hover:bg-paper"
   }`;
+
+  // Beta Mode blocks new billing activity server-side (startCheckoutAction
+  // itself refuses regardless of this) — hiding the CTA here is purely UX,
+  // not the enforcement boundary.
+  if (betaLocked) {
+    return (
+      <span className="mt-6 block w-full text-center rounded-md border border-line px-4 py-2.5 text-sm font-medium text-muted italic">
+        Unavailable during beta
+      </span>
+    );
+  }
 
   if (!authenticated) {
     return (

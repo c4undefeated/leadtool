@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCompanyEntitlements, countBusinesses } from "@/lib/billing/entitlements";
 import { getStripe } from "@/lib/stripe";
 import { PLAN_ORDER, PLANS, TRIAL_DAYS, type PlanId } from "@/lib/billing/plans";
+import { getBetaSettings } from "@/lib/beta";
 import {
   startCheckoutAction,
   changePlanFormAction,
@@ -41,10 +42,11 @@ export default async function BillingSettingsPage({
   const companyId = user.companyId ?? "__none__";
   const accountId = user.accountId ?? "__none__";
 
-  const [account, entitlements, businessCount] = await Promise.all([
+  const [account, entitlements, businessCount, betaSettings] = await Promise.all([
     prisma.account.findUnique({ where: { id: accountId } }),
     getCompanyEntitlements(companyId),
     countBusinesses(accountId),
+    getBetaSettings(),
   ]);
 
   let paymentMethodSummary: string | null = null;
@@ -91,6 +93,12 @@ export default async function BillingSettingsPage({
         <p className="text-sm text-muted">Manage your IntentScout plan, payment method, and billing history.</p>
       </div>
 
+      {betaSettings.enabled && (
+        <Banner tone="warn">
+          <span className="font-medium">Beta Mode — Billing Temporarily Unavailable.</span> IntentScout is currently in beta testing.
+          Starting a free trial or subscribing is disabled while beta is active — your existing plan (if any) is unaffected.
+        </Banner>
+      )}
       {checkout === "success" && (
         <Banner tone="good">Subscription started — welcome to IntentScout. It may take a few seconds for your plan to activate.</Banner>
       )}
@@ -210,7 +218,7 @@ export default async function BillingSettingsPage({
         <h2 className="font-display text-lg mb-3">{hasSubscription ? "Change plan" : "Choose a plan"}</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {PLAN_ORDER.map((id) => (
-            <PlanOptionCard key={id} id={id} isCurrent={id === planId} hasSubscription={hasSubscription} />
+            <PlanOptionCard key={id} id={id} isCurrent={id === planId} hasSubscription={hasSubscription} betaLocked={betaSettings.enabled} />
           ))}
         </div>
       </div>
@@ -241,7 +249,7 @@ export default async function BillingSettingsPage({
   );
 }
 
-function PlanOptionCard({ id, isCurrent, hasSubscription }: { id: PlanId; isCurrent: boolean; hasSubscription: boolean }) {
+function PlanOptionCard({ id, isCurrent, hasSubscription, betaLocked }: { id: PlanId; isCurrent: boolean; hasSubscription: boolean; betaLocked: boolean }) {
   const plan = PLANS[id];
   return (
     <div className={`rounded-lg border p-4 flex flex-col ${isCurrent ? "border-accent bg-accent/5" : "border-line bg-surface"}`}>
@@ -253,12 +261,16 @@ function PlanOptionCard({ id, isCurrent, hasSubscription }: { id: PlanId; isCurr
       {isCurrent ? (
         <span className="mt-auto text-xs font-medium text-accent">Current plan</span>
       ) : hasSubscription ? (
+        // Beta Mode only blocks NEW billing activity (starting a trial/checkout)
+        // — switching an already-active subscription's plan is untouched.
         <form action={changePlanFormAction} className="mt-auto">
           <input type="hidden" name="planId" value={id} />
           <SubmitButton className="w-full rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-paper">
             Switch to {plan.name}
           </SubmitButton>
         </form>
+      ) : betaLocked ? (
+        <span className="mt-auto text-xs text-muted italic">Unavailable during beta</span>
       ) : (
         <form action={startCheckoutAction} className="mt-auto">
           <input type="hidden" name="planId" value={id} />
