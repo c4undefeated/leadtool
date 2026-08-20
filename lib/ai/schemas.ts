@@ -240,7 +240,7 @@ export const discoveryTermResponseSchema: Schema = {
   required: ["terms"],
 };
 
-export const X_PHRASE_PROMPT_VERSION = "x-phrase-v1-gemini";
+export const X_PHRASE_PROMPT_VERSION = "x-phrase-v2-gemini";
 
 /**
  * X/Twitter's discovery-vocabulary categories — deliberately its own enum,
@@ -299,7 +299,7 @@ export const xPhraseResponseSchema: Schema = {
           phrase: {
             type: Type.STRING,
             description:
-              "A short, natural, conversational fragment (roughly 3-9 words) — what a real person might actually type in a tweet. Not a single keyword/topic label, and not a full formal sentence — a realistic snippet of real speech, informal and specific.",
+              "Either a SHORT band phrase (roughly 2-4 words — a concise, specific, multi-word X-native concept, never a single bare word) or a LONG band phrase (roughly 5-9 words — a natural conversational fragment, what a real person might actually type in a tweet). Generate a real mix of both bands. Never a single keyword/topic label alone, and never a full formal sentence.",
           },
           category: { type: Type.STRING, enum: [...X_PHRASE_CATEGORIES] },
           priority: {

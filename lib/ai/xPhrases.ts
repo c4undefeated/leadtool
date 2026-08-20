@@ -23,13 +23,16 @@ import { xPhraseResultSchema, xPhraseResponseSchema, X_PHRASE_PROMPT_VERSION, ty
  * appear verbatim in real posts; short, ordinary phrases do"). A full
  * 12-15 word literary sentence quoted as an exact phrase would almost
  * never match a real tweet and would quietly gut recall to near zero —
- * the opposite of the goal. So this generator asks for NATURAL REGISTER,
- * not maximal length: short conversational fragments (~3-9 words) that
- * plausibly appear verbatim inside a longer real tweet, phrased the way a
- * person actually talks rather than as a clinical topic label. This is a
- * deliberate, reasoned interpretation of "substantially more emphasis on
- * natural-language phrases" — natural voice, not literal full sentences —
- * see the implementation report for the full reasoning.
+ * the opposite of the goal. Live production evidence (an X-discovery
+ * audit against IntentScout's own campaign) confirmed this concretely: 9
+ * of 10 query batches built from this pool's original single-band ~3-9
+ * word guidance returned zero raw results. So this generator now asks for
+ * TWO length bands in the SAME pool — a short (~2-4 word) X-native concept
+ * band, still multi-word and specific, alongside the original longer
+ * (~5-9 word) natural-register band — rather than one length trying to
+ * serve both "sounds natural" and "plausibly matches literally" at once.
+ * Both bands are ordinary XDiscoveryPhrase rows; nothing downstream
+ * (ranking, batching, attribution) treats them differently.
  *
  * Deliberately vertical-agnostic: every category and instruction below is
  * generic, and the one worked example is explicitly labeled "form only" so
@@ -42,7 +45,13 @@ function buildSystemPrompt(targetCount: number): string {
 Your job: given ONE business's offer profile, generate a large pool of natural, conversational SEARCH PHRASES — short fragments of real speech a real prospect might actually type in a tweet, long before they'd ever use this business's own marketing language.
 
 CORE PRINCIPLE — read this twice
-X/Twitter is a conversational medium. People express problems, goals, and frustrations in natural sentence fragments, not search-engine-style keywords. A phrase here should read like something a real person would actually type — "trying to figure out X", "no idea how to deal with X", "does anyone actually know a good X" — not a clinical topic label like "X service". At the same time, every phrase must stay SHORT (roughly 3-9 words): a long, fully-formed sentence essentially never appears verbatim inside a real tweet, so a phrase that's too long to plausibly occur as a literal fragment of real text is retrieval-useless no matter how natural it sounds. The goal is natural REGISTER within a short, realistic length — not maximal length.
+X/Twitter is a conversational medium. People express problems, goals, and frustrations in natural sentence fragments, not search-engine-style keywords. A phrase here should read like something a real person would actually type — "trying to figure out X", "no idea how to deal with X", "does anyone actually know a good X" — not a clinical topic label like "X service". At the same time, every phrase must stay short: a long, fully-formed sentence essentially never appears verbatim inside a real tweet, so a phrase that's too long to plausibly occur as a literal fragment of real text is retrieval-useless no matter how natural it sounds. The goal is natural REGISTER within a short, realistic length — not maximal length.
+
+TWO LENGTH BANDS — generate BOTH, not just one
+The search provider matches phrases as literal quoted fragments, so length directly determines whether a phrase can ever actually match real text. Produce a genuine mix of both bands across the categories below, not one band dominating:
+- SHORT band (roughly 2-4 words): a concise, X-native concept phrase — still multi-word and specific to this business, never a single bare word ("marketing", "leads", "business" are USELESS — too generic to mean anything on their own). Think "lead generation," "buying intent," "social listening," "cold outreach," "burst pipe repair," "root canal pain" — short enough to plausibly sit verbatim inside almost any real tweet on the topic, however that tweet is phrased.
+- LONG band (roughly 5-9 words): the fuller natural conversational fragment — "trying to figure out X", "no idea how to deal with X", "does anyone actually know a good X". More natural-sounding, but only matches a real tweet that happens to use nearly that exact wording.
+Aim for roughly an even split between the two bands overall, and include at least one short-band phrase in most of the categories below where a genuine short concept exists for this business — don't concentrate all short phrases in one or two categories.
 
 THE 11 CATEGORIES (rotation classes)
 - direct_demand: an explicit, conversational statement of wanting/needing this kind of help — phrased the way someone would actually say it, not a formal request.
@@ -58,17 +67,18 @@ THE 11 CATEGORIES (rotation classes)
 - customer_language: how this business's actual ideal customer would casually describe their own situation, in their own words — never the business's marketing language.
 
 RULES
-- Every phrase must be a REALISTIC, NATURAL fragment (roughly 3-9 words) — not a single keyword, not a full formal sentence. Think "what would this person actually type," not "what's the search term."
+- Every phrase must be a REALISTIC, NATURAL fragment in one of the two length bands above — not a full formal sentence, and never a single bare word. Think "what would this person actually type, or what short concept would this person's tweet actually contain," not "what's the search term."
+- A short-band phrase must still be specific and multi-word — a real, meaningful concept in this business's own language, not a generic category word. If you can't produce a genuinely specific short phrase for a category, skip the short band there rather than forcing something generic.
 - Do NOT require every phrase to contain an obvious buying-intent word ("looking for", "need", "hire", "recommend"). Most should not — the language BEFORE someone knows exactly what they want to buy ("can't get X working", "no idea where to start with X") is just as valuable, often more so, because it's less competitive and far more common.
 - Ground every phrase in what the offer profile actually says this business sells and solves. Never invent an industry, service, or audience the profile doesn't support.
 - Vary sentence structure, tone, and register — do not produce many phrases that all start the same way.
 - If the offer profile states a real geography constraint, include a modest number of location-qualified phrases naturally, spread across whatever categories they naturally fit. If the business is remote/anywhere, do not invent a location.
 - Never pad with generic filler to hit a target count. Real, specific, well-grounded phrases beat forced ones — it is fine to return fewer than the target if that's honestly all that fits this business.
 - Assign "priority" honestly per phrase: "high" for phrases you're confident will surface real, actionable prospects; "medium" for plausible but less certain ones; "low" for exploratory/adjacent ones worth testing but unproven.
-- Aim for roughly ${targetCount} total phrases across all categories combined, but this is a target, not a quota.
+- Aim for roughly ${targetCount} total phrases across all categories and BOTH length bands combined, but this is a target, not a quota.
 
 WORKED EXAMPLE (form only — do not reuse this business's content for a different one)
-For a bookkeeping cleanup service: direct_demand might include "does anyone know a good bookkeeper"; problem might include "my books have been a mess for months"; frustration might include "so tired of trying to do my own bookkeeping"; solution_seeking might include "how do people actually stay on top of this"; adjacent_concept might include "any tips for getting ready for tax season". A completely different business (a plumber, a SaaS company, a personal trainer) would produce entirely different phrases across the same 11 categories — generate what's actually real for the business described below, not this example.`;
+For a bookkeeping cleanup service: direct_demand might include the long-band "does anyone know a good bookkeeper" and the short-band "bookkeeping cleanup"; problem might include the long-band "my books have been a mess for months" and the short-band "messy books"; frustration might include "so tired of trying to do my own bookkeeping"; solution_seeking might include "how do people actually stay on top of this"; adjacent_concept might include the long-band "any tips for getting ready for tax season" and the short-band "tax season prep". A completely different business (a plumber, a SaaS company, a personal trainer) would produce entirely different phrases in both bands across the same 11 categories — generate what's actually real for the business described below, not this example.`;
 }
 
 function targetCountFromEnv(): number {

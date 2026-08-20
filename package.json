@@ -18,6 +18,7 @@
     "test:junk-filter": "tsx scripts/testJunkFilter.ts",
     "test:search-orchestrator": "tsx scripts/testSearchOrchestrator.ts",
     "test:x-phrase-generation": "tsx scripts/testXPhraseGeneration.ts",
+    "test:x-phrase-length-mix": "tsx scripts/testXPhraseLengthMix.ts",
     "test:daily-scan": "tsx scripts/testDailyScan.ts",
     "test:billing": "tsx scripts/testBilling.ts",
     "test:admin": "tsx scripts/testAdmin.ts",
