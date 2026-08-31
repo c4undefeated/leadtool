@@ -7,7 +7,7 @@ import { runXDiscovery, type DiscoveredTweet } from "./searchOrchestrator";
  * X/Twitter, backed by TwitterAPIs (api.twitterapis.com) — a third-party
  * data provider, NOT X's official API and not affiliated with X. Its
  * availability, data provenance, terms, and continued access are an
- * external dependency IntentScout monitors (see
+ * external dependency OpportunityTrace monitors (see
  * lib/providers/twitterapis/health.ts), not something this codebase
  * asserts or vouches for. Mirrors lib/sources/redditApisAdapter.ts by
  * design — same governance, same discovery architecture (precision layer +
@@ -19,7 +19,7 @@ import { runXDiscovery, type DiscoveredTweet } from "./searchOrchestrator";
  * session, never authenticates as an X user, and never calls a write,
  * like, retweet, follow, or DM endpoint — see
  * lib/providers/twitterapis/client.ts for the full boundary. Nothing in
- * IntentScout posts, likes, retweets, follows, or messages automatically;
+ * OpportunityTrace posts, likes, retweets, follows, or messages automatically;
  * every draft this product produces is copy/pasted and sent by a human.
  *
  * All provider calls are budgeted, cost-logged, and short-TTL cached

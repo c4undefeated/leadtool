@@ -1,5 +1,5 @@
 /**
- * The single authoritative definition of IntentScout's paid plans — price,
+ * The single authoritative definition of OpportunityTrace's paid plans — price,
  * limits, and marketing copy all live here and nowhere else. Every
  * server-side enforcement point (lib/billing/entitlements.ts) and every
  * customer-facing surface (pricing page, billing tab, upgrade prompts)

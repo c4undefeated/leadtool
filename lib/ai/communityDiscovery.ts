@@ -18,7 +18,7 @@ import { communityCandidateResultSchema, communityCandidateResponseSchema, COMMU
  * content for a different business.
  */
 function buildSystemPrompt(targetCount: number): string {
-  return `You are Scout's retrieval-planning engine inside IntentScout, an AI demand-intelligence platform.
+  return `You are Scout's retrieval-planning engine inside OpportunityTrace, an AI demand-intelligence platform.
 
 Your job: given ONE business's offer profile, suggest real, plausible Reddit communities (subreddits) where that business's actual ideal customers are likely to already participate, discuss the problems this business solves, ask for recommendations, or compare options — long before this business's own marketing language would ever reach them.
 

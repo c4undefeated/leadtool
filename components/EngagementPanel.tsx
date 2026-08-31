@@ -204,7 +204,7 @@ function DraftBox({
         </button>
       </div>
       {showWhy && <p className="text-sm text-muted mt-2 italic">{draft.whyThisResponse}</p>}
-      <p className="text-[11px] text-muted mt-1.5 italic">Copy this, then use "{openLabel}" — paste it there yourself and send. IntentScout never sends it for you.</p>
+      <p className="text-[11px] text-muted mt-1.5 italic">Copy this, then use "{openLabel}" — paste it there yourself and send. OpportunityTrace never sends it for you.</p>
     </div>
   );
 }
@@ -279,7 +279,7 @@ function MarkContactedForm({
         </div>
       </form>
       <p className="text-xs text-muted mt-2">
-        IntentScout never sends anything on its own — this just records that you did, manually.
+        OpportunityTrace never sends anything on its own — this just records that you did, manually.
       </p>
     </div>
   );

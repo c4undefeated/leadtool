@@ -5,7 +5,7 @@
  * real users) and, under it, 10 synthetic Company/Offer/Campaign rows — one
  * per vertical from scripts/fixtures/offer.ts — each an X/Twitter campaign
  * with ZERO Keyword rows (so precision-layer contamination can't confound
- * the read on pure X-phrase-discovery quality, matching IntentScout's own
+ * the read on pure X-phrase-discovery quality, matching OpportunityTrace's own
  * X campaign setup). Nothing about this script touches, updates, or reads
  * any existing production Account/Company/Campaign row — every id it
  * creates is brand new.

@@ -29,7 +29,7 @@ export default async function AdminMetricsPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-2xl mb-1">Engine Metrics</h1>
-        <p className="text-sm text-muted">Is IntentScout actually producing useful opportunities? Last 30 days, read-only — the scoring algorithm itself is untouched.</p>
+        <p className="text-sm text-muted">Is OpportunityTrace actually producing useful opportunities? Last 30 days, read-only — the scoring algorithm itself is untouched.</p>
       </div>
 
       <StatCardRow>

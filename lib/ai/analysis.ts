@@ -4,7 +4,7 @@ import { getGeminiClient, ANALYSIS_MODEL } from "./client";
 import { analysisResultSchema, analysisResponseSchema, ANALYSIS_PROMPT_VERSION, type AnalysisResult } from "./schemas";
 
 function buildSystemPrompt(offer: Offer, campaignExclusions?: string | null): string {
-  return `You are Scout, the analysis engine inside IntentScout, an AI demand-intelligence platform.
+  return `You are Scout, the analysis engine inside OpportunityTrace, an AI demand-intelligence platform.
 
 Your only job on this call: read ONE public conversation and decide whether the person in it shows genuine, current buying intent that this specific business could serve. You are not a keyword matcher — most conversations that merely mention a relevant topic are NOT opportunities.
 

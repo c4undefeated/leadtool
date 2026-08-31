@@ -10,7 +10,7 @@ export default async function AdminOverviewPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-2xl mb-1">Admin Overview</h1>
-        <p className="text-sm text-muted">A high-level view of IntentScout — customers, revenue, and engine health.</p>
+        <p className="text-sm text-muted">A high-level view of OpportunityTrace — customers, revenue, and engine health.</p>
       </div>
 
       <StatCardRow>

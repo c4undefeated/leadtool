@@ -1,4 +1,4 @@
-# IntentScout
+# OpportunityTrace
 
 AI demand-intelligence and assisted-engagement platform. Core promise:
 *find people already looking for what you sell.* This repo is the
@@ -19,7 +19,7 @@ never pretending to have data or results it doesn't have.
 | Auth, onboarding, campaigns, pipeline, UI | Fully working, dark theme |
 | AI analysis (scoring) + engagement guidance/drafting | Fully working, **requires `GEMINI_API_KEY`** — verified live against real Gemini calls, 10/10 on the eval suite |
 | Manual conversation import (Track A / validation) | Fully working, always available |
-| Contacted tracking (`contactedAt`/`engagementType`/`finalResponse`) | Fully working — distinct from "draft generated," never set by IntentScout itself |
+| Contacted tracking (`contactedAt`/`engagementType`/`finalResponse`) | Fully working — distinct from "draft generated," never set by OpportunityTrace itself |
 | Reddit adapter | Code complete, **inert without `REDDITAPIS_API_KEY`**, read-only |
 | X/Twitter adapter | Code complete, **inert without `TWITTER_API_KEY`**, read-only |
 | Website enrichment (auto-suggest keywords/subreddits/exclusions from a URL) | Fully working, requires `GEMINI_API_KEY` — suggestions only, never auto-saved |
@@ -39,9 +39,9 @@ Instead, `lib/sources/redditApisAdapter.ts` is backed by **Redditapis**
 (`api.redditapis.com`) — a third-party data provider. To be explicit about
 what that means: Redditapis is **not** Reddit's official API and is **not**
 affiliated with Reddit. Its availability, data provenance, terms, and
-continued access are an external dependency IntentScout monitors (see
+continued access are an external dependency OpportunityTrace monitors (see
 `lib/providers/redditapis/health.ts`), not something this codebase asserts
-or vouches for. IntentScout itself does not attempt to bypass Reddit's
+or vouches for. OpportunityTrace itself does not attempt to bypass Reddit's
 restrictions, rate limits, authentication, bans, or access controls.
 
 The integration is **read-only, permanently**, regardless of what the
@@ -52,7 +52,7 @@ provider's API surface otherwise exposes:
   `lib/providers/redditapis/client.ts` for the exact list.
 - Redditapis also documents `/login` (returns live Reddit session cookies),
   `/comment`, `/vote`, and `/dm*` endpoints. **None of these are
-  implemented, and none will be** — IntentScout never authenticates as a
+  implemented, and none will be** — OpportunityTrace never authenticates as a
   Reddit user and never posts, votes, or messages automatically. Every
   comment/DM draft Scout generates is copy-pasted and sent by a human, same
   as always (see "Mark Contacted" below).
@@ -229,7 +229,7 @@ Env vars — see `.env.example` for the full list and what each unlocks:
   settings.
 - `SESSION_SECRET` — required, signs auth session cookies.
 - `GEMINI_API_KEY` — required for any analysis or drafting.
-- `INTENTSCOUT_ANALYSIS_MODEL` / `INTENTSCOUT_ENGAGEMENT_MODEL` — optional,
+- `OPPORTUNITYTRACE_ANALYSIS_MODEL` / `OPPORTUNITYTRACE_ENGAGEMENT_MODEL` — optional,
   both default to `gemini-3.6-flash`.
 - `REDDITAPIS_API_KEY` — optional, only needed to enable live Reddit
   ingestion via Redditapis (see above). Server-side only, read-only.
@@ -256,7 +256,7 @@ SourceAdapter (lib/sources/*)
   → Feed / detail UI
   → Engagement guidance (lib/ai/engagement.ts) — on demand, not on ingest
   → Human-approved draft (comment or DM, never auto-sent)
-  → Pipeline (lightweight CRM) → Mark Contacted (records how, not that IntentScout sent it)
+  → Pipeline (lightweight CRM) → Mark Contacted (records how, not that OpportunityTrace sent it)
 ```
 
 Reddit is `SourceAdapter #1` (`lib/sources/redditApisAdapter.ts`, backed by

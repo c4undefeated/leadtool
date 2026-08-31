@@ -9,7 +9,7 @@
  *
  * TwitterAPIs is a third-party data provider, not X/Twitter's official API
  * and not affiliated with X. Its availability, data provenance, terms, and
- * continued access are an external dependency IntentScout monitors — see
+ * continued access are an external dependency OpportunityTrace monitors — see
  * health.ts — not something this codebase makes claims about.
  *
  * Only documented, READ-only, app-level endpoints are implemented here:
@@ -23,7 +23,7 @@
  * automation red flag as Redditapis's /login), every write endpoint
  * (create/delete tweet, like, retweet, bookmark, follow), and DM
  * inbox/conversation/send — all of which are documented as requiring that
- * same registered session. IntentScout never authenticates as an X user
+ * same registered session. OpportunityTrace never authenticates as an X user
  * and never posts, likes, retweets, follows, or messages automatically.
  */
 

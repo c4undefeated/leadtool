@@ -24,7 +24,7 @@ export default async function AdminCronPage() {
       <div>
         <h1 className="font-display text-2xl mb-1">Scan / Cron Monitor</h1>
         <p className="text-sm text-muted">
-          IntentScout's one daily cron, unchanged — atomic per-campaign locking, 10-minute lease recovery, honest status. This page
+          OpportunityTrace's one daily cron, unchanged — atomic per-campaign locking, 10-minute lease recovery, honest status. This page
           only reads existing scan history.
         </p>
       </div>

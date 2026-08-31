@@ -20,7 +20,7 @@ export default async function NewBusinessPage() {
     <main className="min-h-screen px-4 py-12">
       <div className="mx-auto max-w-2xl">
         <p className="font-mono text-xs uppercase tracking-widest text-accent mb-2">Add a business</p>
-        <h1 className="font-display text-3xl mb-2">Start a new IntentScout workspace.</h1>
+        <h1 className="font-display text-3xl mb-2">Start a new OpportunityTrace workspace.</h1>
         <p className="text-muted mb-8 max-w-xl">
           Each business gets its own completely isolated discovery configuration, opportunities, and AI context —
           switch between them any time from the sidebar.

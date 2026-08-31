@@ -2,7 +2,7 @@ import { runDailyScan } from "@/lib/dailyScan";
 
 // Runs on Vercel's Hobby-tier cron limit — once per day, at an imprecise
 // time within the scheduled hour (see vercel.json), hard-capped at 60s
-// regardless of maxDuration. This is the sole trigger for IntentScout's
+// regardless of maxDuration. This is the sole trigger for OpportunityTrace's
 // always-on scanning: users no longer click "Run scan" — an ACTIVE
 // campaign gets scanned automatically once a day the moment this fires.
 // See lib/dailyScan.ts for the actual orchestration (due-checking,

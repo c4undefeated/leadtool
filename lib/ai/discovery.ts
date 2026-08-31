@@ -17,7 +17,7 @@ import { discoveryTermResultSchema, discoveryTermResponseSchema, DISCOVERY_PROMP
  * different business.
  */
 function buildSystemPrompt(targetCount: number): string {
-  return `You are Scout's discovery-planning engine inside IntentScout, an AI demand-intelligence platform.
+  return `You are Scout's discovery-planning engine inside OpportunityTrace, an AI demand-intelligence platform.
 
 Your job: given ONE business's offer profile, generate a large pool of short discovery concepts — the different, ordinary ways a real prospect for THIS SPECIFIC business might phrase themselves in a public forum post, long before they ever use this business's own marketing language.
 

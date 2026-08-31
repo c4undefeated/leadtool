@@ -5,7 +5,7 @@ import { isCompanyEligibleForScanning } from "@/lib/billing/entitlements";
 import { getBetaSettings } from "@/lib/beta";
 
 /**
- * The always-on daily scan orchestrator (spec: "IntentScout should behave
+ * The always-on daily scan orchestrator (spec: "OpportunityTrace should behave
  * like a true always-on intent-monitoring product"). This is the ONLY
  * thing app/api/cron/scan-campaigns/route.ts calls — it owns "which
  * campaigns get scanned today and in what order," nothing about how a
@@ -178,7 +178,7 @@ export async function runDailyScan(): Promise<DailyScanSummary> {
   const startedAt = Date.now();
   console.log("[DailyScan] started");
 
-  // Beta Mode (spec: "IntentScout — Beta Mode / Controlled Manual
+  // Beta Mode (spec: "OpportunityTrace — Beta Mode / Controlled Manual
   // Scanning"): exits immediately, before touching a single campaign row,
   // provider, or AI call, whenever an administrator has beta testing
   // active — controlled scanning during beta happens only through the

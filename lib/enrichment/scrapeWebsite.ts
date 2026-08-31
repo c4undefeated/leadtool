@@ -13,7 +13,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 3_000_000; // 3MB — plenty for an HTML page, cheap to cap
 const MAX_BODY_TEXT_CHARS = 6_000; // keeps the enrichment prompt small and bounded
 const MAX_REDIRECTS = 3;
-const USER_AGENT = "IntentScoutEnrichmentBot/0.1 (+fetched at a logged-in user's explicit request)";
+const USER_AGENT = "OpportunityTraceEnrichmentBot/0.1 (+fetched at a logged-in user's explicit request)";
 
 async function fetchOnce(url: URL): Promise<Response> {
   const controller = new AbortController();

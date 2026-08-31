@@ -30,6 +30,6 @@ export function isAiConfigured(): boolean {
 // Manual "Run scan" UI visibility used to be its own env-var flag here.
 // It's now entirely driven by Beta Mode (lib/beta.ts's getBetaSettings) —
 // see app/(dashboard)/campaigns/[id]/page.tsx, which reads it directly —
-// so IntentScout scans automatically once a day for every normal
+// so OpportunityTrace scans automatically once a day for every normal
 // (non-beta) account, with no manual button, exactly as before Beta Mode
 // existed.

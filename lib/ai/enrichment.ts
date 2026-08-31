@@ -13,7 +13,7 @@ import type { ScrapedSite } from "@/lib/enrichment/scrapeWebsite";
  * business, not deciding what to search for.
  */
 function buildSystemPrompt(): string {
-  return `You are Scout's setup assistant inside IntentScout, an AI demand-intelligence platform.
+  return `You are Scout's setup assistant inside OpportunityTrace, an AI demand-intelligence platform.
 
 Your job: read the scraped content of ONE business's website and infer its offer profile — what they sell, what real problems they solve, and who their ideal customer is. This is the SAME profile a human would type into a short onboarding form; a human reviews and can edit whatever you produce before anything is saved.
 
