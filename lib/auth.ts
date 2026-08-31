@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
-const COOKIE_NAME = "intentscout_session";
+const COOKIE_NAME = "opportunitytrace_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 function secretKey() {

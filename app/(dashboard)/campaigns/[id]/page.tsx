@@ -166,7 +166,7 @@ export default async function CampaignDetailPage({
         )}
         {betaSettings.enabled && (
           <div className="mb-4 rounded-md bg-accent/5 border border-accent/30 px-4 py-3 text-sm">
-            <p className="text-ink font-medium">IntentScout is currently in beta testing mode.</p>
+            <p className="text-ink font-medium">OpportunityTrace is currently in beta testing mode.</p>
             <p className="text-muted mt-1">
               Automatic daily scanning is temporarily disabled. You have a limited number of manual scans available
               each day while we test and improve the discovery engine.

@@ -92,7 +92,7 @@ export type ScanState =
 /**
  * The manual "Run scan" action — reuses the exact same production pipeline
  * (runScanForCampaign) the daily cron calls, just triggered on demand.
- * Only usable while Beta Mode is on (spec: "IntentScout — Beta Mode /
+ * Only usable while Beta Mode is on (spec: "OpportunityTrace — Beta Mode /
  * Controlled Manual Scanning") and capped at the admin-configured number
  * of manual scans per user per day, enforced here server-side via an
  * atomic claim (lib/beta.ts's claimBetaScanAllowance) — never trusting

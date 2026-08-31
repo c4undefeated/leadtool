@@ -90,17 +90,17 @@ export default async function BillingSettingsPage({
     <div className="max-w-2xl flex flex-col gap-6">
       <div>
         <h1 className="font-display text-2xl mb-1">Billing &amp; Usage</h1>
-        <p className="text-sm text-muted">Manage your IntentScout plan, payment method, and billing history.</p>
+        <p className="text-sm text-muted">Manage your OpportunityTrace plan, payment method, and billing history.</p>
       </div>
 
       {betaSettings.enabled && (
         <Banner tone="warn">
-          <span className="font-medium">Beta Mode — Billing Temporarily Unavailable.</span> IntentScout is currently in beta testing.
+          <span className="font-medium">Beta Mode — Billing Temporarily Unavailable.</span> OpportunityTrace is currently in beta testing.
           Starting a free trial or subscribing is disabled while beta is active — your existing plan (if any) is unaffected.
         </Banner>
       )}
       {checkout === "success" && (
-        <Banner tone="good">Subscription started — welcome to IntentScout. It may take a few seconds for your plan to activate.</Banner>
+        <Banner tone="good">Subscription started — welcome to OpportunityTrace. It may take a few seconds for your plan to activate.</Banner>
       )}
       {checkout === "canceled" && <Banner tone="neutral">Checkout was canceled — no charge was made.</Banner>}
       {notice === "already_subscribed" && (
@@ -108,7 +108,7 @@ export default async function BillingSettingsPage({
       )}
       {entitlements.status === "past_due" && (
         <Banner tone="warn">
-          Your last payment failed. IntentScout still has access, but will lose it soon if payment isn't fixed —{" "}
+          Your last payment failed. OpportunityTrace still has access, but will lose it soon if payment isn't fixed —{" "}
           <PortalLink label="update your payment method" />.
         </Banner>
       )}

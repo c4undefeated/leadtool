@@ -88,7 +88,7 @@ export type MarkContactedState = { error?: string } | undefined;
 /**
  * The dedicated "Mark Contacted" action from the Engagement panel — distinct from the
  * generic status dropdown because it captures HOW the user engaged and, optionally,
- * exactly what they sent. IntentScout never sets this itself; it only records what the
+ * exactly what they sent. OpportunityTrace never sets this itself; it only records what the
  * human reports after sending something externally.
  */
 export async function markContactedAction(

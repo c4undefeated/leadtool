@@ -24,7 +24,7 @@ import { xPhraseResultSchema, xPhraseResponseSchema, X_PHRASE_PROMPT_VERSION, ty
  * 12-15 word literary sentence quoted as an exact phrase would almost
  * never match a real tweet and would quietly gut recall to near zero —
  * the opposite of the goal. Live production evidence (an X-discovery
- * audit against IntentScout's own campaign) confirmed this concretely: 9
+ * audit against OpportunityTrace's own campaign) confirmed this concretely: 9
  * of 10 query batches built from this pool's original single-band ~3-9
  * word guidance returned zero raw results. So this generator now asks for
  * TWO length bands in the SAME pool — a short (~2-4 word) X-native concept
@@ -40,7 +40,7 @@ import { xPhraseResultSchema, xPhraseResponseSchema, X_PHRASE_PROMPT_VERSION, ty
  * example's content for a different business.
  */
 function buildSystemPrompt(targetCount: number): string {
-  return `You are Scout's X/Twitter discovery-planning engine inside IntentScout, an AI demand-intelligence platform.
+  return `You are Scout's X/Twitter discovery-planning engine inside OpportunityTrace, an AI demand-intelligence platform.
 
 Your job: given ONE business's offer profile, generate a large pool of natural, conversational SEARCH PHRASES — short fragments of real speech a real prospect might actually type in a tweet, long before they'd ever use this business's own marketing language.
 

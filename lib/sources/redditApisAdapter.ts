@@ -7,7 +7,7 @@ import { runDiscovery } from "./searchOrchestrator";
  * Reddit is SourceAdapter #1, backed by Redditapis (api.redditapis.com) — a
  * third-party data provider, NOT Reddit's official API and not affiliated
  * with Reddit. Its availability, data provenance, terms, and continued
- * access are an external dependency IntentScout monitors (see
+ * access are an external dependency OpportunityTrace monitors (see
  * lib/providers/redditapis/health.ts), not something this codebase asserts
  * or vouches for.
  *
@@ -15,7 +15,7 @@ import { runDiscovery } from "./searchOrchestrator";
  * (search, subreddit listing, free account check). It never authenticates
  * as a Reddit user and never calls a write, vote, DM, or login endpoint —
  * see lib/providers/redditapis/client.ts for the full boundary. Nothing in
- * IntentScout posts, votes, or messages automatically; every draft this
+ * OpportunityTrace posts, votes, or messages automatically; every draft this
  * product produces is copy/pasted and sent by a human.
  *
  * All provider calls are budgeted, cost-logged, and short-TTL cached

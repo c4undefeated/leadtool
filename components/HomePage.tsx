@@ -24,7 +24,7 @@ const STEPS = [
   {
     n: "05",
     title: "Track what happens",
-    body: "Mark an opportunity contacted, replied, qualified, won, or lost. IntentScout keeps the history — what Scout suggested, what you actually sent, and when.",
+    body: "Mark an opportunity contacted, replied, qualified, won, or lost. OpportunityTrace keeps the history — what Scout suggested, what you actually sent, and when.",
   },
 ];
 
@@ -83,7 +83,7 @@ export function HomePage() {
             Find people who are already looking for what you sell.
           </h1>
           <p className="text-muted text-lg mb-8 max-w-xl">
-            IntentScout finds public conversations with real buying intent, explains why they
+            OpportunityTrace finds public conversations with real buying intent, explains why they
             matter, and helps you respond without wasting your time or damaging your reputation.
           </p>
           <div className="flex flex-wrap items-center gap-4">
@@ -105,7 +105,7 @@ export function HomePage() {
       {/* HOW IT WORKS */}
       <section className="border-t border-line">
         <div className="mx-auto max-w-5xl px-4 py-16">
-          <p className="font-mono text-xs uppercase tracking-widest text-accent mb-2">How IntentScout works</p>
+          <p className="font-mono text-xs uppercase tracking-widest text-accent mb-2">How OpportunityTrace works</p>
           <h2 className="font-display text-2xl sm:text-3xl mb-10 max-w-2xl">
             From a keyword to a conversation worth having.
           </h2>
@@ -134,7 +134,7 @@ export function HomePage() {
               Scout drafts. You decide. You send.
             </h2>
             <p className="text-muted max-w-2xl">
-              IntentScout will never publish a comment or send a message on your behalf. Every
+              OpportunityTrace will never publish a comment or send a message on your behalf. Every
               draft opens in an editable composer next to the original conversation — you read it,
               change what doesn't sound like you, copy it, and send it yourself. That boundary is
               permanent, not a setting you can turn off.
@@ -146,7 +146,7 @@ export function HomePage() {
       {/* WHY DIFFERENT */}
       <section className="border-t border-line">
         <div className="mx-auto max-w-5xl px-4 py-16">
-          <p className="font-mono text-xs uppercase tracking-widest text-accent mb-2">What IntentScout is not</p>
+          <p className="font-mono text-xs uppercase tracking-widest text-accent mb-2">What OpportunityTrace is not</p>
           <h2 className="font-display text-2xl sm:text-3xl mb-10 max-w-2xl">
             It's a demand-intelligence platform, not another automation tool.
           </h2>
@@ -182,7 +182,7 @@ export function HomePage() {
 
       <footer className="border-t border-line">
         <div className="mx-auto max-w-5xl px-4 py-8 text-xs font-mono text-muted">
-          IntentScout — find people who are already looking for what you sell.
+          OpportunityTrace — find people who are already looking for what you sell.
         </div>
       </footer>
     </div>

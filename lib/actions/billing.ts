@@ -43,7 +43,7 @@ export async function startCheckoutAction(formData: FormData): Promise<void> {
   const planId = planIdFromFormData(formData);
   const { user, account } = await ownedAccountOrThrow();
 
-  // Beta Mode (spec: "IntentScout — Beta Mode / Controlled Manual
+  // Beta Mode (spec: "OpportunityTrace — Beta Mode / Controlled Manual
   // Scanning" section 7): no new billing activity while beta testing is
   // active. Checked server-side, before any Stripe API call — a direct
   // POST to this action bypasses nothing, since hiding the button
@@ -53,7 +53,7 @@ export async function startCheckoutAction(formData: FormData): Promise<void> {
   // NEW one.
   const betaSettings = await getBetaSettings();
   if (betaSettings.enabled) {
-    redirect(`/settings/billing?notice=${encodeURIComponent("IntentScout is currently in beta. Paid subscriptions and free trials are temporarily unavailable.")}`);
+    redirect(`/settings/billing?notice=${encodeURIComponent("OpportunityTrace is currently in beta. Paid subscriptions and free trials are temporarily unavailable.")}`);
   }
 
   if (account.subscriptionStatus && ENTITLED_STATUSES.has(account.subscriptionStatus)) {

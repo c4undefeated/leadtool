@@ -12,7 +12,7 @@ const FEED_LIMIT = 100;
 
 /**
  * Composed from existing data rather than a new "admin event log" table —
- * IntentScout has no single unified event-log model today, and building
+ * OpportunityTrace has no single unified event-log model today, and building
  * one just for this view would be exactly the kind of duplicate system
  * the spec warns against. Instead this merges four already-persisted
  * signals: Activity (opportunity-level events, existing model),

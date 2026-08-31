@@ -48,7 +48,7 @@ export const INDIRECT_NEED_OFFER: Offer = {
 
 /**
  * A deliberately non-fitness vertical — residential/emergency plumbing —
- * used only to prove IntentScout's X/Twitter discovery engine (and the
+ * used only to prove OpportunityTrace's X/Twitter discovery engine (and the
  * shared Gemini qualification engine behind it) is genuinely
  * vertical-agnostic, not fitness-specific. See conversations.ts's
  * "x-*" fixtures and scripts/testXPhraseGeneration.ts.

@@ -1,4 +1,4 @@
-// IntentScout V1 data model.
+// OpportunityTrace V1 data model.
 //
 // Design note: AIAnalysis, PipelineStatus, and Outcome from the spec are
 // folded directly onto Opportunity rather than split into separate 1:1
@@ -20,7 +20,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
-/// The IntentScout account/subscription owner (spec: "multi-business
+/// The OpportunityTrace account/subscription owner (spec: "multi-business
 /// support"). One Account has exactly one Stripe subscription and one or
 /// more Businesses (the Company model, reused as-is rather than
 /// duplicated — see Company's own doc comment) beneath it. A User belongs
@@ -625,7 +625,7 @@ model Opportunity {
   outcome        String? // won | lost, set when status reaches a terminal state
 
   // Set only when the user explicitly marks Contacted — distinct from a draft merely
-  // being generated. IntentScout never sets these itself; it never sends anything.
+  // being generated. OpportunityTrace never sets these itself; it never sends anything.
   contactedAt    DateTime?
   engagementType String? // comment | dm | other — which channel the user actually used
   finalResponse  String? // optional: what the user actually sent, if they want it on record

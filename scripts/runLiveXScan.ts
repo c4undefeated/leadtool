@@ -1,6 +1,6 @@
 /**
  * One-off, throwaway script to trigger a real Beta Mode X/Twitter scan
- * against IntentScout's own X campaign, for the live-experiment step of
+ * against OpportunityTrace's own X campaign, for the live-experiment step of
  * the X-discovery-recall audit (lib/ai/xPhrases.ts's new short/long
  * length-band mix). Calls the exact same production path a real "Run
  * scan" button click does (lib/pipeline.ts's runScanForCampaign) — no

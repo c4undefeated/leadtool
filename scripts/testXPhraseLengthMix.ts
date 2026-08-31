@@ -1,6 +1,6 @@
 /**
  * Live proof that lib/ai/xPhrases.ts's new short/long length-band mix
- * (added to address the X-discovery audit's finding: 9/10 IntentScout
+ * (added to address the X-discovery audit's finding: 9/10 OpportunityTrace
  * query batches built from the old single ~3-9-word band returned zero
  * raw provider results) is genuinely vertical-agnostic across a wide
  * spread of business types, not just the two already covered by

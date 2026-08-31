@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 
 /**
- * IntentScout Beta Mode / Controlled Manual Scanning.
+ * OpportunityTrace Beta Mode / Controlled Manual Scanning.
  *
  * A single admin-controlled database row (BetaSettings, fixed id
  * "singleton") gates several things:

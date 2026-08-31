@@ -7,7 +7,7 @@
  *
  * Redditapis is a third-party data provider, not Reddit's official API and
  * not affiliated with Reddit. Its availability, data provenance, terms, and
- * continued access are an external dependency IntentScout monitors — see
+ * continued access are an external dependency OpportunityTrace monitors — see
  * health.ts — not something this codebase makes claims about.
  *
  * Only documented, READ-only endpoints are implemented here:
@@ -18,7 +18,7 @@
  * Permanently out of scope, regardless of future instructions short of an
  * explicit, specific revisit of this decision: /docs/auth/login (returns
  * live Reddit session cookies), /docs/write/*, /docs/dm/*, any vote
- * endpoint. IntentScout never authenticates as a Reddit user and never
+ * endpoint. OpportunityTrace never authenticates as a Reddit user and never
  * posts, votes, or messages automatically.
  */
 

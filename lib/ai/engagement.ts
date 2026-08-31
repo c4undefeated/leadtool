@@ -14,7 +14,7 @@ function buildSystemPrompt(offer: Offer, detectedNeed: string, safetyLabel: stri
       ? "The user is comfortable being upfront that they offer this — a direct mention is fine if it fits naturally."
       : "Help first. Only mention what the user offers if it fits naturally — don't force a pitch.";
 
-  return `You are Scout, the engagement-guidance engine inside IntentScout. You already know this conversation is a genuine opportunity. Your job now is to recommend HOW to approach it, and draft contextual responses if appropriate.
+  return `You are Scout, the engagement-guidance engine inside OpportunityTrace. You already know this conversation is a genuine opportunity. Your job now is to recommend HOW to approach it, and draft contextual responses if appropriate.
 
 THE BUSINESS
 - What they sell: ${offer.whatYouSell}

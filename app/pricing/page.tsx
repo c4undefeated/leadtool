@@ -37,7 +37,7 @@ export default async function PricingPage() {
         <div className="max-w-3xl mx-auto text-center mb-14">
           <h1 className="font-display text-4xl md:text-5xl leading-tight">Simple pricing for finding real buyers.</h1>
           <p className="mt-4 text-muted text-lg">
-            IntentScout automatically scans Reddit and X every day, finds people actively looking for what you
+            OpportunityTrace automatically scans Reddit and X every day, finds people actively looking for what you
             sell, and tells you why each conversation matters. No manual scanning, no busywork — just prioritized
             opportunities in your feed each morning.
           </p>
@@ -46,7 +46,7 @@ export default async function PricingPage() {
         {betaSettings.enabled && (
           <div className="max-w-3xl mx-auto mb-8 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3 text-sm text-center">
             <span className="font-medium text-ink">Beta Mode — Billing Temporarily Unavailable.</span>{" "}
-            <span className="text-muted">IntentScout is currently in beta. Paid subscriptions and free trials are temporarily unavailable.</span>
+            <span className="text-muted">OpportunityTrace is currently in beta. Paid subscriptions and free trials are temporarily unavailable.</span>
           </div>
         )}
 
@@ -63,7 +63,7 @@ export default async function PricingPage() {
         <div className="max-w-3xl mx-auto mt-16">
           <h2 className="font-display text-2xl text-center mb-8">Questions</h2>
           <div className="flex flex-col gap-6">
-            <Faq q="Do I have to run scans myself?" a="No. IntentScout scans automatically once a day for every active plan — there's no manual scan button to remember to click." />
+            <Faq q="Do I have to run scans myself?" a="No. OpportunityTrace scans automatically once a day for every active plan — there's no manual scan button to remember to click." />
             <Faq
               q="What happens when my trial ends?"
               a="If you haven't canceled, your card is charged for the plan you started the trial on and your account continues normally. You can cancel any time before the trial ends and you won't be charged."

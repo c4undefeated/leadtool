@@ -6,7 +6,7 @@ import { hashOfferForDiscovery } from "@/lib/ai/discovery";
 import type { Offer } from "@prisma/client";
 
 /**
- * Intelligent Retrieval Assistance (spec: "IntentScout — Intelligent
+ * Intelligent Retrieval Assistance (spec: "OpportunityTrace — Intelligent
  * Retrieval Assistance") — closes the exact gap the production audit
  * found: a business with zero manually-configured Reddit communities got
  * zero community-scoped retrieval. This module generates, validates,

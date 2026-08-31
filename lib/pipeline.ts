@@ -311,7 +311,7 @@ export async function runScanForCampaign(
     .filter((k) => k.type === "subreddit")
     .map((k) => k.term);
 
-  // Durable per-scan history — the answer to "why is IntentScout producing
+  // Durable per-scan history — the answer to "why is OpportunityTrace producing
   // fewer leads" needs real numbers over time, not just the ephemeral
   // console.log lines and the five lastScan* fields on Campaign (which only
   // ever remember the most recent scan). Created before the search call so
@@ -484,7 +484,7 @@ export async function runScanForCampaign(
   // Finalize the ScanRun row created before the search call — aggregated
   // from DiscoveryTermRun rows the orchestrator already wrote (raw counts,
   // provider call/error/cache-hit counts, distinct terms used) plus a real
-  // spend lookup, so "why is IntentScout producing fewer leads" can
+  // spend lookup, so "why is OpportunityTrace producing fewer leads" can
   // eventually be answered from durable history instead of guessed at from
   // a single console.log. Best-effort: never let an observability write
   // fail the scan itself.

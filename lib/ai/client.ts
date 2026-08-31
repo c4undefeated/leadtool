@@ -27,8 +27,8 @@ export function getGeminiClient(): GoogleGenAI {
 // gemini-3.6-flash is, as of this writing, the current stable (non-preview)
 // Flash release — verified live against the models.list endpoint rather
 // than assumed. Override per-stage via env if that changes.
-export const ANALYSIS_MODEL = process.env.INTENTSCOUT_ANALYSIS_MODEL || "gemini-3.6-flash";
-export const ENGAGEMENT_MODEL = process.env.INTENTSCOUT_ENGAGEMENT_MODEL || "gemini-3.6-flash";
+export const ANALYSIS_MODEL = process.env.OPPORTUNITYTRACE_ANALYSIS_MODEL || "gemini-3.6-flash";
+export const ENGAGEMENT_MODEL = process.env.OPPORTUNITYTRACE_ENGAGEMENT_MODEL || "gemini-3.6-flash";
 
 /**
  * Rough per-analysis-call cost estimate for lib/pipeline.ts's
