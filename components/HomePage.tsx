@@ -53,7 +53,7 @@ export function HomePage() {
       <header className="border-b border-line">
         <div className="mx-auto max-w-5xl px-4 py-4 flex flex-wrap items-center justify-between gap-3">
           <span className="font-display text-xl">
-            Intent<span className="text-accent">Scout</span>
+            Opportunity<span className="text-accent">Trace</span>
           </span>
           <nav className="flex flex-wrap items-center gap-3 sm:gap-5 text-sm font-mono">
             <Link href="/pricing" className="text-muted hover:text-ink">

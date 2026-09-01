@@ -67,7 +67,7 @@ export function DashboardSidebar({
           <MenuIcon />
         </button>
         <Link href="/dashboard" className="font-display text-lg">
-          Intent<span className="text-accent">Scout</span>
+          Opportunity<span className="text-accent">Trace</span>
         </Link>
         <span className="w-6" aria-hidden="true" />
       </div>
@@ -83,7 +83,7 @@ export function DashboardSidebar({
       >
         <div className="px-5 py-5 border-b border-line">
           <Link href="/dashboard" className="font-display text-xl block" onClick={() => setOpen(false)}>
-            Intent<span className="text-accent">Scout</span>
+            Opportunity<span className="text-accent">Trace</span>
           </Link>
           <BusinessSwitcher businesses={businesses} activeCompanyId={activeCompanyId} canAddBusiness={canAddBusiness} />
         </div>
