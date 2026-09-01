@@ -12,7 +12,7 @@ export default async function PricingPage() {
       <header className="border-b border-line px-4 sm:px-6 py-4">
         <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <Link href="/" className="font-display text-xl">
-            Intent<span className="text-accent">Scout</span>
+            Opportunity<span className="text-accent">Trace</span>
           </Link>
           <nav className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm">
             {user ? (

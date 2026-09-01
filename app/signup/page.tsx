@@ -7,7 +7,7 @@ export default function SignupPage() {
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="font-display text-3xl mb-1">
-          Intent<span className="text-accent">Scout</span>
+          Opportunity<span className="text-accent">Trace</span>
         </h1>
         <p className="text-muted text-sm mb-6">
           Find people already looking for what you sell.
